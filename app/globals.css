@@ -1,10 +1,11 @@
 @import "tailwindcss";
 
-/* ARCHI is a dark-theme app regardless of system color scheme. */
+/* Light, Raya-inspired palette: soft lavender-grey background, navy text,
+   white cards, orange accents. */
 :root {
-  --background: #0a0a0a;
-  --foreground: #ededed;
-  color-scheme: dark;
+  --background: #f5f5fa;
+  --foreground: #26275f;
+  color-scheme: light;
 }
 
 @theme inline {
@@ -22,6 +23,11 @@ body {
 
 select,
 option {
-  background-color: #171717;
-  color: #ededed;
+  background-color: #ffffff;
+  color: #26275f;
+}
+
+::selection {
+  background: #fdba74;
+  color: #26275f;
 }

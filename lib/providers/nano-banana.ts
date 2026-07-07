@@ -19,12 +19,14 @@ interface GeminiResponse {
 
 /**
  * Nano Banana Pro (Gemini 3 Pro Image) via Google AI Studio REST API.
- * Input image is sent inline as base64.
+ * No native mask support — marked areas are handled in the prompt
+ * (Claude describes them spatially). Quality maps to output resolution.
  */
 export const nanoBananaProvider: ImageEditProvider = {
   name: "gemini",
+  supportsMask: false,
 
-  async generateEdit({ imageUrl, prompt }: GenerateEditParams): Promise<GenerateEditResult> {
+  async generateEdit({ imageUrl, prompt, quality }: GenerateEditParams): Promise<GenerateEditResult> {
     const apiKey = process.env.GOOGLE_API_KEY;
     if (!apiKey) {
       throw new Error("Brak klucza GOOGLE_API_KEY w zmiennych środowiskowych.");
@@ -51,6 +53,7 @@ export const nanoBananaProvider: ImageEditProvider = {
           ],
           generationConfig: {
             responseModalities: ["TEXT", "IMAGE"],
+            imageConfig: { imageSize: quality === "high" ? "2K" : "1K" },
           },
         }),
       },
@@ -76,6 +79,7 @@ export const nanoBananaProvider: ImageEditProvider = {
       imageBase64: imagePart.inlineData.data,
       mimeType: imagePart.inlineData.mimeType || "image/png",
       costUsd: GEMINI_COST_USD,
+      model: GEMINI_MODEL,
     };
   },
 };

@@ -14,13 +14,21 @@ polecenie PL ──► Claude (Fable 5) ──► precyzyjny prompt EN ──►
                           Vercel Blob ◄── zapis wyniku ◄── nowy węzeł w historii
 ```
 
-- **Claude (Fable 5)** — tłumaczy naturalne polecenie na ustrukturyzowany prompt edycyjny
-  i generuje jednozdaniowe podsumowanie zmiany do historii.
-- **FLUX.1 Kontext [Max]** (fal.ai) — główny model edycji obrazu; **Nano Banana Pro**
-  (Gemini 3 Pro Image, Google AI Studio) — fallback. Przełącznik w UI albo flaga
-  `IMAGE_PROVIDER` w env. Wspólny interfejs: `lib/providers/` (`generateEdit`).
-- **Historia** — drzewo iteracji w `localStorage` (możesz wrócić do dowolnej wersji
-  i kontynuować — powstaje gałąź). Obrazy trwale w Vercel Blob.
+- **Claude** — tłumaczy naturalne polecenie na ustrukturyzowany prompt edycyjny
+  i generuje jednozdaniowe podsumowanie zmiany do historii. Model przełączany
+  w UI (Fable 5 / Opus 4.8 / Sonnet 5).
+- **Zaznaczanie obszarów** — rysujesz prostokąty na obrazie i opisujesz każdy z nich;
+  przy FLUX zmiany wykonuje model inpaintingowy (FLUX.1 Fill) wyłącznie w masce,
+  przy Nano Banana obszary trafiają do promptu jako opis przestrzenny.
+- **Jakość** — „Szybka (test)" (FLUX Kontext Pro, taniej) do sprawdzania kierunku
+  zmian i „Wysoka" (Kontext Max) na wersję finalną.
+- **Kąt kamery** — chipy (niski/wysoki/z lewej/z prawej/detal/szeroki kadr)
+  dokładane do promptu.
+- **Modele graficzne** — FLUX (fal.ai) i **Nano Banana Pro** (Gemini 3 Pro Image),
+  przełączane w UI albo flagą `IMAGE_PROVIDER`. Wspólny interfejs: `lib/providers/`.
+- **Historia** — drzewo iteracji (powrót do dowolnej wersji tworzy gałąź),
+  synchronizowane między urządzeniami przez Vercel Blob (`/api/projects`),
+  z lokalnym cache w `localStorage`. Obrazy trwale w Vercel Blob.
 - **Koszty** — licznik $ przy każdym węźle i sumarycznie per projekt
   (Claude wg tokenów + stała stawka za obraz, konfigurowalna w env).
 - **Autoryzacja** — jedno hasło (`APP_PASSWORD`), cookie sesyjne, middleware.

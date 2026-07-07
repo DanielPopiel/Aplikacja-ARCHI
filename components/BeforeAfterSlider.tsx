@@ -24,10 +24,14 @@ export default function BeforeAfterSlider({ beforeUrl, afterUrl }: Props) {
   return (
     <div
       ref={containerRef}
-      className="relative select-none overflow-hidden rounded-xl bg-neutral-900 touch-none"
+      className="relative select-none overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-[#E8E8F0] touch-none"
       onPointerDown={(e) => {
         draggingRef.current = true;
-        (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+        try {
+          (e.target as HTMLElement).setPointerCapture(e.pointerId);
+        } catch {
+          /* ignore — dragging still works via move/up */
+        }
         updateFromClientX(e.clientX);
       }}
       onPointerMove={(e) => {

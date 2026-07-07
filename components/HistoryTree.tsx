@@ -29,27 +29,27 @@ export default function HistoryTree({ project, onSelect, disabled }: Props) {
     const label = node.instructionPl === null ? "Oryginał" : node.summaryPl || node.instructionPl;
 
     return (
-      <div key={node.id} style={{ marginLeft: depth > 0 ? 14 : 0 }}>
+      <div key={node.id} style={{ marginLeft: depth > 0 ? 12 : 0 }}>
         <button
           type="button"
           disabled={disabled}
           onClick={() => onSelect(node.id)}
-          className={`w-full text-left flex items-center gap-2 rounded-lg border p-2 mb-1.5 transition-colors ${
+          className={`mb-1.5 flex w-full items-center gap-2 rounded-xl border p-2 text-left transition-colors ${
             isCurrent
-              ? "border-emerald-500 bg-emerald-500/10"
-              : "border-neutral-700 bg-neutral-800/60 hover:border-neutral-500"
+              ? "border-orange-400 bg-orange-50"
+              : "border-[#E8E8F0] bg-white hover:border-[#c9c9de]"
           } ${disabled ? "opacity-60" : "cursor-pointer"}`}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={node.imageUrl}
             alt=""
-            className="h-12 w-12 shrink-0 rounded object-cover bg-neutral-900"
+            className="h-12 w-12 shrink-0 rounded-lg bg-[#f0f0f6] object-cover"
             loading="lazy"
           />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm text-neutral-100">{label}</p>
-            <p className="text-xs text-neutral-400">
+            <p className="truncate text-sm font-medium text-[#26275f]">{label}</p>
+            <p className="text-xs text-[#8a8ba8]">
               {new Date(node.createdAt).toLocaleTimeString("pl-PL", {
                 hour: "2-digit",
                 minute: "2-digit",
@@ -58,7 +58,7 @@ export default function HistoryTree({ project, onSelect, disabled }: Props) {
                 <> · ${node.costUsd.toFixed(3)}</>
               )}
               {node.provider && <> · {node.provider === "flux" ? "FLUX" : "Nano Banana"}</>}
-              {isCurrent && <span className="text-emerald-400"> · aktualna</span>}
+              {isCurrent && <span className="font-medium text-orange-500"> · aktualna</span>}
             </p>
           </div>
         </button>

@@ -15,22 +15,48 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Nieprawidłowe żądanie" }, { status: 400 });
   }
 
-  const { imageUrl, instruction, provider: requestedProvider, historySummaries } = body;
-  if (!imageUrl || !instruction?.trim()) {
-    return NextResponse.json({ error: "Wymagane pola: imageUrl, instruction" }, { status: 400 });
+  const {
+    imageUrl,
+    instruction = "",
+    provider: requestedProvider,
+    quality = "standard",
+    claudeModel,
+    cameraAngle,
+    areas = [],
+    maskUrl,
+    historySummaries,
+  } = body;
+
+  const hasAreaDescriptions = areas.some((a) => a.description?.trim());
+  if (!imageUrl || (!instruction.trim() && !hasAreaDescriptions && !cameraAngle)) {
+    return NextResponse.json(
+      { error: "Opisz zmianę, zaznacz obszar z opisem albo wybierz kąt kamery." },
+      { status: 400 },
+    );
   }
 
   try {
-    // 1. Claude (Fable) turns the Polish instruction into an optimized English prompt
-    const translation = await translateInstruction(
+    const provider = getProvider(requestedProvider);
+    const useMask = Boolean(maskUrl) && provider.supportsMask && areas.length > 0;
+
+    // 1. Claude turns the Polish instruction (+ areas, camera) into an optimized EN prompt
+    const translation = await translateInstruction({
       imageUrl,
-      instruction.trim(),
-      historySummaries ?? [],
-    );
+      instruction,
+      historySummaries: historySummaries ?? [],
+      areas,
+      cameraAngle: cameraAngle ?? null,
+      model: claudeModel,
+      maskMode: useMask,
+    });
 
     // 2. Image model applies the edit
-    const provider = getProvider(requestedProvider);
-    const result = await provider.generateEdit({ imageUrl, prompt: translation.promptEn });
+    const result = await provider.generateEdit({
+      imageUrl,
+      prompt: translation.promptEn,
+      quality,
+      maskUrl: useMask ? maskUrl : undefined,
+    });
 
     // 3. Persist the result in our own storage (provider CDN URLs can expire)
     const persistedUrl = result.imageBase64
@@ -42,6 +68,7 @@ export async function POST(request: NextRequest) {
       promptEn: translation.promptEn,
       summaryPl: translation.summaryPl,
       provider: provider.name,
+      quality,
       costUsd: {
         claude: translation.costUsd,
         image: result.costUsd,

@@ -28,6 +28,7 @@ export async function GET() {
       synced: true,
       projects: Array.isArray(doc.projects) ? doc.projects : [],
       deletedIds: Array.isArray(doc.deletedIds) ? doc.deletedIds : [],
+      budgets: doc.budgets ?? null,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Nieznany błąd";
@@ -46,7 +47,11 @@ export async function PUT(request: NextRequest) {
     }
     await put(
       DOC_PATH,
-      JSON.stringify({ projects: doc.projects, deletedIds: doc.deletedIds ?? [] }),
+      JSON.stringify({
+        projects: doc.projects,
+        deletedIds: doc.deletedIds ?? [],
+        budgets: doc.budgets ?? null,
+      }),
       {
         access: "public",
         contentType: "application/json",

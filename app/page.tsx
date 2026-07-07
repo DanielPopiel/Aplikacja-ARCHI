@@ -2,25 +2,30 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
+  Budgets,
   CameraAngle,
   EditArea,
   EditResponseBody,
   Project,
+  ProjectsDocument,
   ProviderName,
   Quality,
 } from "@/lib/types";
 import {
   chainSummaries,
   createProject,
+  loadBudgets,
   loadDeletedIds,
   loadProjects,
   mergeDocuments,
   nodeById,
   projectCost,
   rootNode,
+  saveBudgets,
   saveDeletedIds,
   saveProjects,
 } from "@/lib/client/projects";
+import UsagePanel from "@/components/UsagePanel";
 import { prepareImageForUpload } from "@/lib/client/image-resize";
 import { buildMaskBlob } from "@/lib/client/mask";
 import BeforeAfterSlider from "@/components/BeforeAfterSlider";
@@ -82,6 +87,8 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [compare, setCompare] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [budgets, setBudgets] = useState<Budgets | null>(null);
+  const [usageOpen, setUsageOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -90,7 +97,11 @@ export default function Home() {
   // --- Load: localStorage + cross-device sync from Blob ---
   useEffect(() => {
     (async () => {
-      let doc = { projects: loadProjects(), deletedIds: loadDeletedIds() };
+      let doc: ProjectsDocument = {
+        projects: loadProjects(),
+        deletedIds: loadDeletedIds(),
+        budgets: loadBudgets(),
+      };
       try {
         const res = await fetch("/api/projects", { cache: "no-store" });
         if (res.ok) {
@@ -99,6 +110,7 @@ export default function Home() {
             doc = mergeDocuments(doc, {
               projects: remote.projects ?? [],
               deletedIds: remote.deletedIds ?? [],
+              budgets: remote.budgets ?? null,
             });
             remoteSyncRef.current = true;
           }
@@ -114,8 +126,10 @@ export default function Home() {
       }
       setProjects(doc.projects);
       setDeletedIds(doc.deletedIds);
+      setBudgets(doc.budgets ?? null);
       saveProjects(doc.projects);
       saveDeletedIds(doc.deletedIds);
+      saveBudgets(doc.budgets ?? null);
       setLoaded(true);
     })();
   }, []);
@@ -125,16 +139,17 @@ export default function Home() {
     if (!loaded) return;
     saveProjects(projects);
     saveDeletedIds(deletedIds);
+    saveBudgets(budgets);
     if (!remoteSyncRef.current) return;
     const t = setTimeout(() => {
       fetch("/api/projects", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projects, deletedIds }),
+        body: JSON.stringify({ projects, deletedIds, budgets }),
       }).catch(() => {});
     }, 1200);
     return () => clearTimeout(t);
-  }, [projects, deletedIds, loaded]);
+  }, [projects, deletedIds, budgets, loaded]);
 
   useEffect(() => {
     if (loaded) window.localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
@@ -250,6 +265,10 @@ export default function Home() {
             provider: data.provider,
             quality: data.quality,
             costUsd: data.costUsd.total,
+            costClaudeUsd: data.costUsd.claude,
+            costImageUsd: data.costUsd.image,
+            tokensIn: data.claudeTokens?.input,
+            tokensOut: data.claudeTokens?.output,
             createdAt: Date.now(),
           },
         ],
@@ -316,12 +335,29 @@ export default function Home() {
   if (!active || !current || !root) {
     return (
       <main className="mx-auto w-full max-w-4xl flex-1 p-4 sm:p-8">
-        <header className="mb-6">
-          <h1 className="text-2xl font-bold text-[#26275f]">
-            <span className="text-orange-500">✦</span> ARCHI
-          </h1>
-          <p className="text-sm text-[#8a8ba8]">Wizualizacja i edycja wnętrz z pomocą AI</p>
+        <header className="mb-6 flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-bold text-[#26275f]">
+              <span className="text-orange-500">✦</span> ARCHI
+            </h1>
+            <p className="text-sm text-[#8a8ba8]">Wizualizacja i edycja wnętrz z pomocą AI</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setUsageOpen(true)}
+            className="rounded-xl border border-[#d9d9e8] bg-white px-3 py-1.5 text-sm font-medium text-[#26275f] hover:border-orange-300"
+          >
+            📊 Zużycie
+          </button>
         </header>
+        {usageOpen && (
+          <UsagePanel
+            projects={projects}
+            budgets={budgets}
+            onBudgetsChange={setBudgets}
+            onClose={() => setUsageOpen(false)}
+          />
+        )}
 
         <div
           onDragOver={(e) => {
@@ -462,7 +498,23 @@ export default function Home() {
         >
           💰 ${totalCost.toFixed(3)}
         </span>
+        <button
+          type="button"
+          onClick={() => setUsageOpen(true)}
+          title="Zużycie i budżety"
+          className="rounded-xl border border-[#d9d9e8] bg-white px-3 py-1.5 text-sm font-medium text-[#26275f] hover:border-orange-300"
+        >
+          📊
+        </button>
       </header>
+      {usageOpen && (
+        <UsagePanel
+          projects={projects}
+          budgets={budgets}
+          onBudgetsChange={setBudgets}
+          onClose={() => setUsageOpen(false)}
+        />
+      )}
 
       <div className="grid flex-1 gap-4 lg:grid-cols-[260px_minmax(0,1fr)_360px]">
         {/* Historia (lewa kolumna) */}

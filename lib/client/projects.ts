@@ -1,9 +1,10 @@
 "use client";
 
-import type { HistoryNode, Project, ProjectsDocument } from "../types";
+import type { Budgets, HistoryNode, Project, ProjectsDocument } from "../types";
 
 const STORAGE_KEY = "archi.projects.v1";
 const DELETED_KEY = "archi.deleted.v1";
+const BUDGETS_KEY = "archi.budgets.v1";
 
 function normalize(project: Project): Project {
   return { ...project, updatedAt: project.updatedAt ?? project.createdAt };
@@ -48,7 +49,25 @@ export function saveDeletedIds(ids: string[]): void {
   }
 }
 
-/** Merge local and remote documents: tombstones win, newer project wins. */
+export function loadBudgets(): Budgets | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(BUDGETS_KEY);
+    return raw ? (JSON.parse(raw) as Budgets) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveBudgets(budgets: Budgets | null): void {
+  try {
+    if (budgets) window.localStorage.setItem(BUDGETS_KEY, JSON.stringify(budgets));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Merge local and remote documents: tombstones win, newer entry wins. */
 export function mergeDocuments(
   local: ProjectsDocument,
   remote: ProjectsDocument,
@@ -65,7 +84,19 @@ export function mergeDocuments(
     }
   }
   const projects = Array.from(byId.values()).sort((a, b) => b.updatedAt - a.updatedAt);
-  return { projects, deletedIds };
+
+  const budgets =
+    !local.budgets && !remote.budgets
+      ? null
+      : !local.budgets
+        ? remote.budgets
+        : !remote.budgets
+          ? local.budgets
+          : remote.budgets.updatedAt >= local.budgets.updatedAt
+            ? remote.budgets
+            : local.budgets;
+
+  return { projects, deletedIds, budgets };
 }
 
 export function createProject(name: string, rootImageUrl: string): Project {

@@ -1,9 +1,19 @@
 import Anthropic from "@anthropic-ai/sdk";
+import sharp from "sharp";
 import type { CameraAngle, EditArea, ProviderName } from "./types";
-import { fetchImageAsBase64 } from "./image-utils";
+import { fetchImageBytes } from "./image-utils";
 
 const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL ?? "claude-fable-5";
 const FALLBACK_MODEL = "claude-opus-4-8";
+
+// Claude only needs to SEE the scene to write a prompt — it doesn't need full
+// resolution. Downscaling to ~1024px cuts vision input tokens roughly 4x
+// (current Claude models otherwise accept images up to 2576px).
+const VISION_MAX_PX = Number(process.env.ANTHROPIC_IMAGE_MAX_PX ?? "1024");
+
+// Reasoning depth for the translation task; "low" is plenty for structured
+// prompt-writing and significantly cuts (expensive) output/thinking tokens.
+const EFFORT = (process.env.ANTHROPIC_EFFORT ?? "low") as "low" | "medium" | "high";
 
 /** Models the UI may request — anything else falls back to the default. */
 export const ALLOWED_CLAUDE_MODELS = [
@@ -102,6 +112,7 @@ export interface TranslationResult {
   summaryPl: string;
   costUsd: number;
   model: string;
+  tokens: { input: number; output: number };
 }
 
 function priceFor(model: string): { input: number; output: number } {
@@ -115,24 +126,15 @@ function resolveModel(requested?: string): string {
   return DEFAULT_MODEL;
 }
 
-type Base64MediaType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
-const BASE64_MEDIA_TYPES: readonly Base64MediaType[] = [
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-];
-
 async function toImageBlock(imageUrl: string): Promise<Anthropic.Beta.BetaImageBlockParam> {
-  if (!imageUrl.startsWith("data:")) {
-    return { type: "image", source: { type: "url", url: imageUrl } };
-  }
-  const { base64, mimeType } = await fetchImageAsBase64(imageUrl);
-  const media =
-    BASE64_MEDIA_TYPES.find((m) => m === mimeType) ?? ("image/jpeg" as const);
+  const { buffer } = await fetchImageBytes(imageUrl);
+  const resized = await sharp(buffer)
+    .resize(VISION_MAX_PX, VISION_MAX_PX, { fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 80 })
+    .toBuffer();
   return {
     type: "image",
-    source: { type: "base64", media_type: media, data: base64 },
+    source: { type: "base64", media_type: "image/jpeg", data: resized.toString("base64") },
   };
 }
 
@@ -212,7 +214,7 @@ export async function translateInstruction(params: TranslateParams): Promise<Tra
         }
       : {}),
     output_config: {
-      effort: "medium",
+      effort: EFFORT,
       format: { type: "json_schema", schema: OUTPUT_SCHEMA },
     },
     system: SYSTEM_PROMPT,
@@ -253,5 +255,6 @@ export async function translateInstruction(params: TranslateParams): Promise<Tra
     summaryPl: parsed.summary,
     costUsd,
     model: response.model,
+    tokens: { input: usage.input_tokens, output: usage.output_tokens },
   };
 }

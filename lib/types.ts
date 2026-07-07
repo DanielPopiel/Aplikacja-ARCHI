@@ -35,6 +35,7 @@ export interface EditResponseBody {
     image: number;
     total: number;
   };
+  claudeTokens: { input: number; output: number };
 }
 
 export interface HistoryNode {
@@ -48,6 +49,11 @@ export interface HistoryNode {
   provider?: ProviderName;
   quality?: Quality;
   costUsd?: number;
+  /** Cost split for the usage counter (older nodes only have costUsd). */
+  costClaudeUsd?: number;
+  costImageUsd?: number;
+  tokensIn?: number;
+  tokensOut?: number;
   /** User feedback on this edit — the trial-and-error learning dataset. */
   rating?: "up" | "down";
   createdAt: number;
@@ -62,8 +68,17 @@ export interface Project {
   updatedAt: number;
 }
 
+/** Monthly budgets (or current balances) per provider, set by the user in USD. */
+export interface Budgets {
+  anthropic: number | null;
+  fal: number | null;
+  google: number | null;
+  updatedAt: number;
+}
+
 /** Document synced to Vercel Blob so history follows you across devices. */
 export interface ProjectsDocument {
   projects: Project[];
   deletedIds: string[];
+  budgets?: Budgets | null;
 }

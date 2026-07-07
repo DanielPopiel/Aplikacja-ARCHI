@@ -263,6 +263,17 @@ export default function Home() {
     }
   }
 
+  function handleRate(rating: "up" | "down") {
+    if (!active || !current) return;
+    const nodeId = current.id;
+    updateProject(active.id, (p) => ({
+      ...p,
+      nodes: p.nodes.map((n) =>
+        n.id === nodeId ? { ...n, rating: n.rating === rating ? undefined : rating } : n,
+      ),
+    }));
+  }
+
   function handleExport() {
     if (!current || !active) return;
     const filename = `${active.name}-${current.id.slice(0, 8)}.jpg`;
@@ -495,6 +506,32 @@ export default function Home() {
             >
               ⬇️ Pobierz
             </button>
+            {!isRootCurrent && (
+              <div className="flex items-center gap-1" title="Oceń tę edycję — oceny pomagają dopracować reguły promptowania">
+                <button
+                  type="button"
+                  onClick={() => handleRate("up")}
+                  className={`rounded-xl border px-2.5 py-1.5 text-sm transition-colors ${
+                    current.rating === "up"
+                      ? "border-emerald-400 bg-emerald-50"
+                      : "border-[#d9d9e8] bg-white hover:border-emerald-300"
+                  }`}
+                >
+                  👍
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleRate("down")}
+                  className={`rounded-xl border px-2.5 py-1.5 text-sm transition-colors ${
+                    current.rating === "down"
+                      ? "border-red-400 bg-red-50"
+                      : "border-[#d9d9e8] bg-white hover:border-red-300"
+                  }`}
+                >
+                  👎
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="relative">

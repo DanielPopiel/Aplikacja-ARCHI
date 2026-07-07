@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { CameraAngle, EditArea } from "./types";
+import type { CameraAngle, EditArea, ProviderName } from "./types";
 import { fetchImageAsBase64 } from "./image-utils";
 
 const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL ?? "claude-fable-5";
@@ -35,17 +35,29 @@ const SYSTEM_PROMPT = `You are the instruction-translation layer of a personal i
 
 The user uploads a photo or render of an interior and types editing instructions in Polish (occasionally English). You can see the current state of the image. Your job is to turn each instruction into a precise, structured English editing prompt optimized for context-aware image editing models (FLUX.1 Kontext, FLUX.1 Fill inpainting, Nano Banana Pro / Gemini image editing).
 
-Rules for the "prompt" field:
+General rules for the "prompt" field:
+- A single imperative paragraph, at most ~900 characters. No markdown, no lists.
 - Describe ONLY the requested change. Do not invent extra creative additions.
-- Explicitly state what must remain unchanged when it matters: camera angle, room layout, composition, other furniture, window views, overall lighting (unless the change is about lighting or camera).
-- Refer to objects concretely, as they appear in the image (e.g. "the grey sofa on the left", "the wooden floor").
-- Be specific about materials, colors, finishes and lighting quality (e.g. "light oak wood planks with a matte finish" instead of "nicer floor").
-- Write a single imperative instruction, at most ~900 characters. No markdown, no lists.
+- Name objects concretely as they appear in the image ("the grey sofa on the left", "the oak wardrobe by the door"). Never use bare pronouns ("it", "them").
+- Use precise action verbs: "change", "add", "remove", "replace". Avoid "transform" except for whole-image style changes — it signals a full redesign to the model.
+- Use exact colors, materials and finishes ("light oak planks with a matte finish", not "nicer floor").
+- ALWAYS end with an explicit preservation clause listing what must stay identical, e.g.: "Keep everything else — the camera angle and framing, room layout, all other furniture, materials and lighting — exactly the same." Adjust the list so it does not contradict the edit (drop "lighting" for lighting edits, "camera angle" for camera edits).
 - If earlier edits from this session are listed, treat them as already applied to the image you see and keep them intact.
+
+Edit-type playbook — first classify the user's intent, then apply the matching pattern:
+1. REMOVAL (no mask): "Remove [object]. Seamlessly reconstruct the area behind it to match the surrounding [surface] texture, color and lighting." + preservation clause.
+2. REPLACEMENT / SWAP: "Replace [existing object, concretely described] with [new object: exact type, material, color, finish]. The new object occupies the same position, scale and perspective as the original." + preservation clause.
+3. MATERIAL / TEXTURE change: "Change the [surface] to [material, finish, color]." State that the surface's geometry, edges and layout stay identical — only its appearance changes — and that reflections should behave appropriately for the new material.
+4. COLOR change: exact color names ("warm off-white, RAL 9010-like" rather than "lighter"). Keep material, texture and lighting of the object the same.
+5. LIGHTING / TIME OF DAY: describe target light sources, direction, color temperature and mood ("warm 2700K evening glow from the wall sconces, soft shadows"). Explicitly keep geometry, furniture and materials unchanged.
+6. ADDING objects: exact placement relative to existing elements, realistic scale and perspective, integration with the scene ("matching the room's lighting, casting consistent soft shadows").
+7. STYLE change: name the target interior style plus 2-3 defining characteristics; preserve room layout, architecture and camera.
+8. CAMERA / FRAMING (chips in the request): phrase as re-rendering the same scene from the new viewpoint with everything in the room identical.
 
 Marked areas (when provided):
 - The user marked rectangular areas on the image. Coordinates are normalized 0..1 with origin at the top-left corner: x,y = top-left of the rectangle, w,h = its size. Look at the image and identify WHAT is inside each rectangle, then refer to it by its visual content and position in natural language (e.g. "the gallery of framed pictures on the center wall") — never by raw coordinates.
 - Each area may have its own description of the desired change; the global instruction (if any) applies too.
+- When the target model is Nano Banana (no mask support), use its semantic-masking phrasing: "Change only the [element] ... Keep everything else in the image exactly the same, preserving the original style, lighting and composition."
 
 Inpainting mode (when indicated in the request):
 - The edit will be executed by an inpainting model that regenerates ONLY the masked (marked) areas — the rest of the image is mechanically preserved.
@@ -81,6 +93,8 @@ export interface TranslateParams {
   model?: string;
   /** True when a mask-based inpainting model will execute the edit. */
   maskMode?: boolean;
+  /** Which image model will execute the edit (provider-specific phrasing). */
+  provider?: ProviderName;
 }
 
 export interface TranslationResult {
@@ -128,8 +142,18 @@ function buildUserText({
   areas = [],
   cameraAngle,
   maskMode,
+  provider,
 }: TranslateParams): string {
   const sections: string[] = [];
+
+  if (provider) {
+    const target = maskMode
+      ? "FLUX.1 Fill (inpainting z maską)"
+      : provider === "flux"
+        ? "FLUX.1 Kontext"
+        : "Nano Banana Pro (Gemini)";
+    sections.push(`Docelowy model graficzny: ${target}.`);
+  }
 
   sections.push(
     instruction.trim()

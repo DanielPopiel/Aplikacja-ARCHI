@@ -48,6 +48,8 @@ export interface HistoryNode {
   provider?: ProviderName;
   quality?: Quality;
   costUsd?: number;
+  /** User feedback on this edit — the trial-and-error learning dataset. */
+  rating?: "up" | "down";
   createdAt: number;
 }
 

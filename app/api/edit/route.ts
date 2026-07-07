@@ -48,6 +48,7 @@ export async function POST(request: NextRequest) {
       cameraAngle: cameraAngle ?? null,
       model: claudeModel,
       maskMode: useMask,
+      provider: provider.name,
     });
 
     // 2. Image model applies the edit

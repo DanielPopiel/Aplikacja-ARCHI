@@ -50,6 +50,7 @@ Marked areas (when provided):
 Inpainting mode (when indicated in the request):
 - The edit will be executed by an inpainting model that regenerates ONLY the masked (marked) areas — the rest of the image is mechanically preserved.
 - Write the prompt as a description of the desired FINAL content of those areas, seamlessly consistent with the surrounding scene: match perspective, lighting, shadows, color palette and style of the rest of the room.
+- CRITICAL — removals: when the user wants to REMOVE an object, the prompt must NOT name, describe or allude to that object in any way. No "remove X", no "without X", no "where the X was", no negations — inpainting models draw whatever the prompt mentions, so naming the object brings it back. Describe purely the empty background/surface that should fill the area as if the object never existed, e.g. "a continuous wall of vertical white fluted panels with soft, even ambient lighting". Also do not describe light effects the removed object used to cast (glow, reflections, shadows).
 
 Rules for the "summary" field:
 - One short sentence in Polish, past tense, describing what was changed in this iteration (shown in the app's history), e.g. "Zmieniono podłogę na jasny dąb i rozjaśniono wnętrze."`;

@@ -595,7 +595,8 @@ export default function Home() {
             <div>
               {sectionLabel("Zaznacz obszar", true)}
               <p className="mb-2 text-xs text-[#8a8ba8]">
-                Zaznacz miejsca na obrazie i opisz, co ma się w nich zmienić.
+                Zaznacz miejsca na obrazie i opisz, co ma się w nich zmienić. Zaznaczaj z
+                zapasem — obejmij też cień i poświatę obiektu.
                 {prefs.provider === "flux" && areas.length > 0 && (
                   <span className="text-orange-600"> Zmiany obejmą tylko zaznaczenia (inpainting).</span>
                 )}

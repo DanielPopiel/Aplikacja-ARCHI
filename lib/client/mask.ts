@@ -28,7 +28,9 @@ export async function buildMaskBlob(imageUrl: string, areas: EditArea[]): Promis
   ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, width, height);
 
-  const pad = Math.round(Math.max(width, height) * 0.01);
+  // Generous padding: the mask must also cover glow/shadows the edited object
+  // casts on its surroundings, or the inpainting model recreates it to match.
+  const pad = Math.round(Math.max(width, height) * 0.03);
   ctx.fillStyle = "#ffffff";
   for (const area of areas) {
     const x = Math.max(0, Math.round(area.x * width) - pad);

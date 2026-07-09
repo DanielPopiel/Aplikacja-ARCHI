@@ -44,10 +44,13 @@ export async function POST(request: NextRequest) {
   try {
     const provider = getProvider(requestedProvider);
     const refs = referenceObjects.filter((r) => r.imageUrl).slice(0, 4);
-    // Reference objects route FLUX to the multi-image model, which has no
-    // mask input — areas then guide the edit through the prompt instead.
-    const useMask =
-      Boolean(maskUrl) && provider.supportsMask && areas.length > 0 && refs.length === 0;
+    // A real pixel mask (FLUX Fill) always wins over reference images when an
+    // area is marked: Fill mechanically preserves everything outside the
+    // mask, which a text-only multi-image edit cannot guarantee. Claude still
+    // sees the reference photos and folds their material/appearance into the
+    // prompt — the image model just doesn't need the reference pixels once a
+    // mask is doing the preservation work.
+    const useMask = Boolean(maskUrl) && provider.supportsMask && areas.length > 0;
 
     // 1. Claude turns the Polish instruction (+ areas, refs, camera) into an EN prompt
     const translation = await translateInstruction({
@@ -68,7 +71,7 @@ export async function POST(request: NextRequest) {
       prompt: translation.promptEn,
       quality,
       maskUrl: useMask ? maskUrl : undefined,
-      referenceImageUrls: refs.map((r) => r.imageUrl),
+      referenceImageUrls: useMask ? undefined : refs.map((r) => r.imageUrl),
     });
 
     // 3. High tier: bring the output up to the target resolution (short side

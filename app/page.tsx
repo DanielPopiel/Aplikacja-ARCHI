@@ -246,10 +246,11 @@ export default function Home() {
     const projectId = active.id;
     const parentId = current.id;
     try {
-      // Reference objects route FLUX to its multi-image model, which has no
-      // mask input — skip building one to avoid a wasted upload.
+      // A real mask always wins when an area is marked — it mechanically
+      // preserves everything outside it, even when reference objects are
+      // also attached (their appearance goes into the prompt text instead).
       let maskUrl: string | undefined;
-      if (prefs.provider === "flux" && areas.length > 0 && referenceObjects.length === 0) {
+      if (prefs.provider === "flux" && areas.length > 0) {
         const maskBlob = await buildMaskBlob(current.imageUrl, areas);
         maskUrl = await uploadBlob(maskBlob, "mask.png");
       }
@@ -712,7 +713,12 @@ export default function Home() {
                 Zaznacz miejsca na obrazie i opisz, co ma się w nich zmienić. Zaznaczaj z
                 zapasem — obejmij też cień i poświatę obiektu.
                 {prefs.provider === "flux" && areas.length > 0 && (
-                  <span className="text-[#50344f]"> Zmiany obejmą tylko zaznaczenia (inpainting).</span>
+                  <span className="text-[#50344f]">
+                    {" "}
+                    Zmiany obejmą tylko zaznaczenia (inpainting).
+                    {referenceObjects.length > 0 &&
+                      " Obiekt referencyjny posłuży tylko do opisu wyglądu — jego zdjęcie nie trafia bezpośrednio do modelu graficznego w tym trybie."}
+                  </span>
                 )}
               </p>
               <div className="flex flex-col gap-2">

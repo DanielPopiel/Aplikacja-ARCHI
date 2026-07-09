@@ -65,9 +65,10 @@ Edit-type playbook — first classify the user's intent, then apply the matching
 8. CAMERA / FRAMING (chips in the request): phrase as re-rendering the same scene from the new viewpoint with everything in the room identical.
 
 Reference objects (when provided):
-- After the main image you receive numbered reference images showing objects, furniture or materials/textures the user wants used in the edit. The image model receives the SAME reference images in the SAME order after the main image.
-- In the prompt refer to them explicitly and unambiguously ("the floor lamp from the second image", "the fabric texture from the third image" — the main scene is the first image) and state exactly where and how to integrate each: position relative to existing elements, realistic scale, correct perspective, lighting and shadows consistent with the room.
-- Preserve the reference object's key identity features (shape, material, color) while adapting it naturally to the scene.
+- After the main image you receive numbered reference images showing objects, furniture or materials/textures the user wants used in the edit.
+- CRITICAL — never let a reference photo's own camera angle, crop, zoom level, distance or background leak into the result. The MAIN image's framing, camera angle and composition are always authoritative and must be reproduced exactly (unless the user explicitly requested a camera/framing change) — reference photos contribute ONLY the identity (shape, material, color, finish) of the thing they show, nothing about how the scene is shot.
+- Case A — the image model WILL receive the reference photos too (no mask; see "Inpainting mode" below for when this is false): refer to them explicitly and unambiguously ("the floor lamp from the second image" — the main scene is the first image) and state exactly where and how to integrate each: position relative to existing elements, realistic scale, correct perspective, lighting and shadows consistent with the room. Still state explicitly that the main image's framing must not change.
+- Case B — inpainting/mask mode is active: the image model receives ONLY your text, not the reference photos. Do not refer to "the second image" — instead write out the reference object's full visual appearance yourself (exact shape/profile, material, color, finish, proportions) in enough self-contained detail that the object could be recreated from your description alone, as if the model had never seen the reference.
 
 Marked areas (when provided):
 - The user marked rectangular areas on the image. Coordinates are normalized 0..1 with origin at the top-left corner: x,y = top-left of the rectangle, w,h = its size. Look at the image and identify WHAT is inside each rectangle, then refer to it by its visual content and position in natural language (e.g. "the gallery of framed pictures on the center wall") — never by raw coordinates.
@@ -75,7 +76,7 @@ Marked areas (when provided):
 - When the target model is Nano Banana (no mask support), use its semantic-masking phrasing: "Change only the [element] ... Keep everything else in the image exactly the same, preserving the original style, lighting and composition."
 
 Inpainting mode (when indicated in the request):
-- The edit will be executed by an inpainting model that regenerates ONLY the masked (marked) areas — the rest of the image is mechanically preserved.
+- The edit will be executed by an inpainting model that regenerates ONLY the masked (marked) areas — the rest of the image is mechanically preserved, and (per "Reference objects" Case B above) the model never sees any reference photos, only your prompt.
 - Write the prompt as a description of the desired FINAL content of those areas, seamlessly consistent with the surrounding scene: match perspective, lighting, shadows, color palette and style of the rest of the room.
 - CRITICAL — removals: when the user wants to REMOVE an object, the prompt must NOT name, describe or allude to that object in any way. No "remove X", no "without X", no "where the X was", no negations — inpainting models draw whatever the prompt mentions, so naming the object brings it back. Describe purely the empty background/surface that should fill the area as if the object never existed, e.g. "a continuous wall of vertical white fluted panels with soft, even ambient lighting". Also do not describe light effects the removed object used to cast (glow, reflections, shadows).
 
@@ -193,10 +194,13 @@ function buildUserText({
   }
 
   if (referenceObjects.length > 0) {
+    const refList = referenceObjects
+      .map((r, i) => `${i + 1}. "${r.description.trim() || "(bez opisu)"}"`)
+      .join("\n");
     sections.push(
-      `Obiekty referencyjne (kolejne obrazy po obrazie głównym):\n${referenceObjects
-        .map((r, i) => `${i + 1}. "${r.description.trim() || "(bez opisu)"}"`)
-        .join("\n")}`,
+      maskMode
+        ? `Obiekty referencyjne (widoczne na kolejnych obrazach TYLKO dla Ciebie — model graficzny ich NIE zobaczy, opisz je w promptcie w pełni słownie):\n${refList}`
+        : `Obiekty referencyjne (kolejne obrazy po obrazie głównym — model graficzny też je zobaczy):\n${refList}`,
     );
   }
 

@@ -21,12 +21,16 @@ polecenie PL ──► Claude (Fable 5) ──► precyzyjny prompt EN ──►
   (Fable 5 / Opus 4.8 / Sonnet 5); obraz wysyłany do Claude jest zmniejszany do
   ~1024px i liczony na `effort: low`, żeby ciąć koszt tokenów.
 - **Zaznaczanie obszarów** — rysujesz prostokąty na obrazie i opisujesz każdy z nich;
-  przy FLUX (bez obiektów referencyjnych) zmiany wykonuje model inpaintingowy
-  (FLUX.1 Fill) wyłącznie w masce, przy Nano Banana obszary trafiają do promptu
-  jako opis przestrzenny.
+  przy FLUX zmiany zawsze wykonuje model inpaintingowy (FLUX.1 Fill) wyłącznie w masce
+  — to ma pierwszeństwo nawet gdy dodasz też obiekty referencyjne (patrz niżej), bo
+  maska mechanicznie gwarantuje nietykalność reszty zdjęcia. Przy Nano Banana (bez
+  natywnej maski) obszary trafiają do promptu jako opis przestrzenny.
 - **Obiekty referencyjne** — dodajesz do 4 zdjęć elementów (mebel, lampa, tekstura),
-  które mają zostać użyte w edycji; FLUX przełącza się wtedy na model wieloobrazowy
-  (Kontext Max Multi), Nano Banana przyjmuje je natywnie jako dodatkowe obrazy wejściowe.
+  które mają zostać użyte w edycji. Bez zaznaczonego obszaru, przy FLUX przełącza to
+  edycję na model wieloobrazowy (Kontext Max Multi), a Nano Banana przyjmuje je
+  natywnie jako dodatkowe obrazy wejściowe. **Z zaznaczonym obszarem przy FLUX**
+  zdjęcia referencyjne nie trafiają do modelu graficznego (Fill przyjmuje tylko jeden
+  obraz + maskę) — Claude opisuje ich wygląd słownie w promptcie zamiast tego.
 - **Jakość** — „Szybka (test)" (FLUX Kontext Pro / Gemini 1K, taniej) do sprawdzania
   kierunku zmian i „Wysoka" na wersję finalną: FLUX Kontext Max + automatyczny
   upscaling do ~2160px na krótszym boku (AuraSR przez fal.ai), Gemini generuje

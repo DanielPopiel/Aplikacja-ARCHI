@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import sharp from "sharp";
-import type { CameraAngle, EditArea, ProviderName } from "./types";
+import type { CameraAngle, EditArea, ProviderName, ReferenceObject } from "./types";
 import { fetchImageBytes } from "./image-utils";
 
 const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL ?? "claude-fable-5";
@@ -64,6 +64,11 @@ Edit-type playbook — first classify the user's intent, then apply the matching
 7. STYLE change: name the target interior style plus 2-3 defining characteristics; preserve room layout, architecture and camera.
 8. CAMERA / FRAMING (chips in the request): phrase as re-rendering the same scene from the new viewpoint with everything in the room identical.
 
+Reference objects (when provided):
+- After the main image you receive numbered reference images showing objects, furniture or materials/textures the user wants used in the edit. The image model receives the SAME reference images in the SAME order after the main image.
+- In the prompt refer to them explicitly and unambiguously ("the floor lamp from the second image", "the fabric texture from the third image" — the main scene is the first image) and state exactly where and how to integrate each: position relative to existing elements, realistic scale, correct perspective, lighting and shadows consistent with the room.
+- Preserve the reference object's key identity features (shape, material, color) while adapting it naturally to the scene.
+
 Marked areas (when provided):
 - The user marked rectangular areas on the image. Coordinates are normalized 0..1 with origin at the top-left corner: x,y = top-left of the rectangle, w,h = its size. Look at the image and identify WHAT is inside each rectangle, then refer to it by its visual content and position in natural language (e.g. "the gallery of framed pictures on the center wall") — never by raw coordinates.
 - Each area may have its own description of the desired change; the global instruction (if any) applies too.
@@ -105,6 +110,7 @@ export interface TranslateParams {
   maskMode?: boolean;
   /** Which image model will execute the edit (provider-specific phrasing). */
   provider?: ProviderName;
+  referenceObjects?: ReferenceObject[];
 }
 
 export interface TranslationResult {
@@ -126,10 +132,13 @@ function resolveModel(requested?: string): string {
   return DEFAULT_MODEL;
 }
 
-async function toImageBlock(imageUrl: string): Promise<Anthropic.Beta.BetaImageBlockParam> {
+async function toImageBlock(
+  imageUrl: string,
+  maxPx = VISION_MAX_PX,
+): Promise<Anthropic.Beta.BetaImageBlockParam> {
   const { buffer } = await fetchImageBytes(imageUrl);
   const resized = await sharp(buffer)
-    .resize(VISION_MAX_PX, VISION_MAX_PX, { fit: "inside", withoutEnlargement: true })
+    .resize(maxPx, maxPx, { fit: "inside", withoutEnlargement: true })
     .jpeg({ quality: 80 })
     .toBuffer();
   return {
@@ -145,6 +154,7 @@ function buildUserText({
   cameraAngle,
   maskMode,
   provider,
+  referenceObjects = [],
 }: TranslateParams): string {
   const sections: string[] = [];
 
@@ -182,6 +192,14 @@ function buildUserText({
     sections.push(`Dodatkowo zmiana kadru: ${CAMERA_ANGLE_EN[cameraAngle]}.`);
   }
 
+  if (referenceObjects.length > 0) {
+    sections.push(
+      `Obiekty referencyjne (kolejne obrazy po obrazie głównym):\n${referenceObjects
+        .map((r, i) => `${i + 1}. "${r.description.trim() || "(bez opisu)"}"`)
+        .join("\n")}`,
+    );
+  }
+
   if (historySummaries.length > 0) {
     sections.push(
       `Earlier edits in this session (already applied to the image):\n${historySummaries
@@ -201,6 +219,10 @@ export async function translateInstruction(params: TranslateParams): Promise<Tra
   const client = new Anthropic();
   const model = resolveModel(params.model);
   const imageBlock = await toImageBlock(params.imageUrl);
+  // Reference objects are small — 768px is plenty for Claude to identify them.
+  const referenceBlocks = await Promise.all(
+    (params.referenceObjects ?? []).map((ref) => toImageBlock(ref.imageUrl, 768)),
+  );
 
   const response = await client.beta.messages.create({
     model,
@@ -221,7 +243,7 @@ export async function translateInstruction(params: TranslateParams): Promise<Tra
     messages: [
       {
         role: "user",
-        content: [imageBlock, { type: "text", text: buildUserText(params) }],
+        content: [imageBlock, ...referenceBlocks, { type: "text", text: buildUserText(params) }],
       },
     ],
   });

@@ -9,6 +9,8 @@ export interface GenerateEditParams {
   quality: Quality;
   /** Optional inpainting mask (white = regenerate, black = keep). */
   maskUrl?: string;
+  /** Images of objects/materials to use in the edit (multi-image input). */
+  referenceImageUrls?: string[];
 }
 
 export interface GenerateEditResult {
@@ -19,6 +21,8 @@ export interface GenerateEditResult {
   costUsd: number;
   /** Which concrete model/endpoint handled the edit (for history/debug). */
   model: string;
+  /** True when the output is already at final (>=2160px short side) quality. */
+  nativeHighRes?: boolean;
 }
 
 export interface ImageEditProvider {

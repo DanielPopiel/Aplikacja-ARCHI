@@ -1,8 +1,10 @@
+import sharp from "sharp";
 import type { GenerateEditParams, GenerateEditResult, ImageEditProvider } from "./types";
-import { fetchImageAsBase64 } from "../image-utils";
+import { fetchImageBytes } from "../image-utils";
 
 const GEMINI_MODEL = process.env.GEMINI_IMAGE_MODEL ?? "gemini-3-pro-image-preview";
 const GEMINI_COST_USD = Number(process.env.GEMINI_COST_USD ?? "0.139");
+const GEMINI_4K_COST_USD = Number(process.env.GEMINI_4K_COST_USD ?? "0.24");
 
 interface GeminiPart {
   text?: string;
@@ -17,22 +19,41 @@ interface GeminiResponse {
   promptFeedback?: unknown;
 }
 
+/** Inline payloads must stay small — downscale inputs before base64-encoding. */
+async function toInlinePart(imageUrl: string, maxPx: number): Promise<GeminiPart> {
+  const { buffer } = await fetchImageBytes(imageUrl);
+  const resized = await sharp(buffer)
+    .resize(maxPx, maxPx, { fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 90 })
+    .toBuffer();
+  return { inlineData: { mimeType: "image/jpeg", data: resized.toString("base64") } };
+}
+
 /**
  * Nano Banana Pro (Gemini 3 Pro Image) via Google AI Studio REST API.
- * No native mask support — marked areas are handled in the prompt
- * (Claude describes them spatially). Quality maps to output resolution.
+ * No native mask support — marked areas are handled in the prompt.
+ * Reference objects go in natively as additional input images.
+ * Quality maps to output resolution: standard → 1K, high → 4K (short side ~2160px).
  */
 export const nanoBananaProvider: ImageEditProvider = {
   name: "gemini",
   supportsMask: false,
 
-  async generateEdit({ imageUrl, prompt, quality }: GenerateEditParams): Promise<GenerateEditResult> {
+  async generateEdit({
+    imageUrl,
+    prompt,
+    quality,
+    referenceImageUrls = [],
+  }: GenerateEditParams): Promise<GenerateEditResult> {
     const apiKey = process.env.GOOGLE_API_KEY;
     if (!apiKey) {
       throw new Error("Brak klucza GOOGLE_API_KEY w zmiennych środowiskowych.");
     }
 
-    const source = await fetchImageAsBase64(imageUrl);
+    const mainPart = await toInlinePart(imageUrl, 2048);
+    const referenceParts = await Promise.all(
+      referenceImageUrls.map((url) => toInlinePart(url, 1024)),
+    );
 
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
@@ -45,15 +66,12 @@ export const nanoBananaProvider: ImageEditProvider = {
         body: JSON.stringify({
           contents: [
             {
-              parts: [
-                { inlineData: { mimeType: source.mimeType, data: source.base64 } },
-                { text: prompt },
-              ],
+              parts: [mainPart, ...referenceParts, { text: prompt }],
             },
           ],
           generationConfig: {
             responseModalities: ["TEXT", "IMAGE"],
-            imageConfig: { imageSize: quality === "high" ? "2K" : "1K" },
+            imageConfig: { imageSize: quality === "high" ? "4K" : "1K" },
           },
         }),
       },
@@ -78,8 +96,9 @@ export const nanoBananaProvider: ImageEditProvider = {
     return {
       imageBase64: imagePart.inlineData.data,
       mimeType: imagePart.inlineData.mimeType || "image/png",
-      costUsd: GEMINI_COST_USD,
+      costUsd: quality === "high" ? GEMINI_4K_COST_USD : GEMINI_COST_USD,
       model: GEMINI_MODEL,
+      nativeHighRes: quality === "high",
     };
   },
 };

@@ -36,7 +36,7 @@ export default function EditorCanvas({ imageUrl, areas, drawMode, onAddArea, onR
   return (
     <div
       ref={containerRef}
-      className={`relative select-none overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-[#E8E8F0] ${
+      className={`relative select-none overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-[#e8e6df] ${
         drawMode ? "cursor-crosshair touch-none" : ""
       }`}
       onPointerDown={(e) => {
@@ -82,7 +82,7 @@ export default function EditorCanvas({ imageUrl, areas, drawMode, onAddArea, onR
       {areas.map((area, i) => (
         <div
           key={i}
-          className="absolute rounded-md border-2 border-orange-500 bg-orange-400/15"
+          className="absolute rounded-md border-2 border-[#b9a646] bg-[#b9a646]/15"
           style={{
             left: `${area.x * 100}%`,
             top: `${area.y * 100}%`,
@@ -90,7 +90,7 @@ export default function EditorCanvas({ imageUrl, areas, drawMode, onAddArea, onR
             height: `${area.h * 100}%`,
           }}
         >
-          <span className="absolute -left-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-[11px] font-bold text-white shadow">
+          <span className="absolute -left-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-[#50344f] text-[11px] font-bold text-white shadow">
             {i + 1}
           </span>
           <button
@@ -109,7 +109,7 @@ export default function EditorCanvas({ imageUrl, areas, drawMode, onAddArea, onR
 
       {draft && (
         <div
-          className="absolute rounded-md border-2 border-dashed border-orange-500 bg-orange-400/10"
+          className="absolute rounded-md border-2 border-dashed border-[#b9a646] bg-[#b9a646]/10"
           style={{
             left: `${Math.min(draft.x1, draft.x2) * 100}%`,
             top: `${Math.min(draft.y1, draft.y2) * 100}%`,
@@ -121,7 +121,7 @@ export default function EditorCanvas({ imageUrl, areas, drawMode, onAddArea, onR
 
       {drawMode && !draft && (
         <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
-          <span className="rounded-full bg-[#26275F]/90 px-3 py-1 text-xs text-white shadow">
+          <span className="rounded-full bg-[#50344f]/90 px-3 py-1 text-xs text-white shadow">
             Narysuj prostokąt na obszarze do zmiany
           </span>
         </div>

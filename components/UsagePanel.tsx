@@ -102,7 +102,7 @@ export default function UsagePanel({ projects, budgets, onBudgetsChange, onClose
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#26275f]/30 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#1A1A1A]/30 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
@@ -110,22 +110,22 @@ export default function UsagePanel({ projects, budgets, onBudgetsChange, onClose
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-1 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-[#26275f]">📊 Zużycie i budżety</h2>
+          <h2 className="text-lg font-bold text-[#1A1A1A]">📊 Zużycie i budżety</h2>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg px-2 py-1 text-[#8a8ba8] hover:text-[#26275f]"
+            className="rounded-lg px-2 py-1 text-[#8a887f] hover:text-[#1A1A1A]"
           >
             ✕
           </button>
         </div>
-        <p className="mb-4 text-xs text-[#8a8ba8]">
+        <p className="mb-4 text-xs text-[#8a887f]">
           Wydatki od 1. dnia bieżącego miesiąca, liczone z historii edycji w aplikacji.
           Sald kont nie da się pobrać przez API — wpisz miesięczny budżet (lub aktualne
           saldo), a aplikacja pokaże, ile zostało i który limit kończy się pierwszy.
         </p>
 
-        <div className="mb-4 rounded-xl bg-[#f5f5fa] p-3 text-sm font-semibold text-[#26275f]">
+        <div className="mb-4 rounded-xl bg-[#F4F4F2] p-3 text-sm font-semibold text-[#1A1A1A]">
           Razem w tym miesiącu: ${usage.totalUsd.toFixed(2)}
         </div>
 
@@ -141,46 +141,46 @@ export default function UsagePanel({ projects, budgets, onBudgetsChange, onClose
               <div
                 key={row.key}
                 className={`rounded-xl border p-3 ${
-                  tightest ? "border-orange-400 bg-orange-50/60" : "border-[#E8E8F0]"
+                  tightest ? "border-[#b9a646] bg-[#f6f2e3]/70" : "border-[#e8e6df]"
                 }`}
               >
                 <div className="mb-1 flex items-baseline justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-[#26275f]">
+                    <p className="text-sm font-semibold text-[#1A1A1A]">
                       {row.label}
                       {tightest && (
-                        <span className="ml-2 rounded-full bg-orange-500 px-2 py-0.5 text-[10px] font-bold text-white">
+                        <span className="ml-2 rounded-full bg-[#50344f] px-2 py-0.5 text-[10px] font-bold text-white">
                           NAJBLIŻEJ LIMITU
                         </span>
                       )}
                     </p>
-                    <p className="text-[11px] text-[#a0a1bd]">{row.detail}</p>
+                    <p className="text-[11px] text-[#a5a29a]">{row.detail}</p>
                   </div>
-                  <p className="shrink-0 text-sm font-semibold text-[#26275f]">
+                  <p className="shrink-0 text-sm font-semibold text-[#1A1A1A]">
                     ${row.spent.toFixed(2)}
                     {budget !== null && (
-                      <span className="text-[#8a8ba8]"> / ${budget.toFixed(2)}</span>
+                      <span className="text-[#8a887f]"> / ${budget.toFixed(2)}</span>
                     )}
                   </p>
                 </div>
                 {budget !== null && (
                   <>
-                    <div className="mb-1 h-2 overflow-hidden rounded-full bg-[#eeeef5]">
+                    <div className="mb-1 h-2 overflow-hidden rounded-full bg-[#edebe4]">
                       <div
                         className={`h-full rounded-full ${
-                          exhausted ? "bg-red-500" : pct > 75 ? "bg-orange-500" : "bg-emerald-500"
+                          exhausted ? "bg-red-500" : pct > 75 ? "bg-[#50344f]" : "bg-emerald-500"
                         }`}
                         style={{ width: `${pct}%` }}
                       />
                     </div>
-                    <p className={`text-xs ${exhausted ? "font-semibold text-red-500" : "text-[#8a8ba8]"}`}>
+                    <p className={`text-xs ${exhausted ? "font-semibold text-red-500" : "text-[#8a887f]"}`}>
                       {exhausted
                         ? "Budżet wyczerpany"
                         : `Zostało $${remaining!.toFixed(2)} (${Math.round((remaining! / budget) * 100)}%)`}
                     </p>
                   </>
                 )}
-                <label className="mt-2 flex items-center gap-2 text-xs text-[#8a8ba8]">
+                <label className="mt-2 flex items-center gap-2 text-xs text-[#8a887f]">
                   Budżet / saldo (USD):
                   <input
                     type="number"
@@ -189,7 +189,7 @@ export default function UsagePanel({ projects, budgets, onBudgetsChange, onClose
                     value={budget ?? ""}
                     placeholder="np. 20"
                     onChange={(e) => setBudget(row.key, e.target.value)}
-                    className="w-24 rounded-lg border border-[#d9d9e8] px-2 py-1 text-sm text-[#26275f] outline-none focus:border-orange-400"
+                    className="w-24 rounded-lg border border-[#dcd9d1] px-2 py-1 text-sm text-[#1A1A1A] outline-none focus:border-[#b9a646]"
                   />
                 </label>
               </div>

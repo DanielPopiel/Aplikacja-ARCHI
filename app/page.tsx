@@ -10,6 +10,7 @@ import type {
   ProjectsDocument,
   ProviderName,
   Quality,
+  ReferenceObject,
 } from "@/lib/types";
 import {
   chainSummaries,
@@ -26,11 +27,12 @@ import {
   saveProjects,
 } from "@/lib/client/projects";
 import UsagePanel from "@/components/UsagePanel";
-import { prepareImageForUpload } from "@/lib/client/image-resize";
+import { prepareImageForUpload, prepareReferenceForUpload } from "@/lib/client/image-resize";
 import { buildMaskBlob } from "@/lib/client/mask";
 import BeforeAfterSlider from "@/components/BeforeAfterSlider";
 import EditorCanvas from "@/components/EditorCanvas";
 import HistoryTree from "@/components/HistoryTree";
+import Logo from "@/components/Logo";
 
 const PREFS_KEY = "archi.prefs.v1";
 const MAX_INSTRUCTION = 500;
@@ -65,8 +67,8 @@ const CLAUDE_MODELS: Array<{ value: string; label: string }> = [
 function sectionLabel(text: string, optional = false) {
   return (
     <div className="mb-2 flex items-baseline justify-between">
-      <h3 className="text-sm font-bold text-[#26275f]">{text}</h3>
-      {optional && <span className="text-xs text-[#a0a1bd]">(opcjonalnie)</span>}
+      <h3 className="text-sm font-bold text-[#1A1A1A]">{text}</h3>
+      {optional && <span className="text-xs text-[#a5a29a]">(opcjonalnie)</span>}
     </div>
   );
 }
@@ -82,6 +84,8 @@ export default function Home() {
   const [areas, setAreas] = useState<EditArea[]>([]);
   const [drawMode, setDrawMode] = useState(false);
   const [cameraAngle, setCameraAngle] = useState<CameraAngle | null>(null);
+  const [referenceObjects, setReferenceObjects] = useState<ReferenceObject[]>([]);
+  const [refBusy, setRefBusy] = useState(false);
 
   const [busy, setBusy] = useState<"upload" | "edit" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -92,6 +96,7 @@ export default function Home() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const refInputRef = useRef<HTMLInputElement>(null);
   const remoteSyncRef = useRef(false);
 
   // --- Load: localStorage + cross-device sync from Blob ---
@@ -169,6 +174,11 @@ export default function Home() {
     setError(null);
   }, [activeId, currentImageUrl]);
 
+  // Reference objects are often reused across edits — reset only per project.
+  useEffect(() => {
+    setReferenceObjects([]);
+  }, [activeId]);
+
   const updateProject = useCallback((id: string, mutate: (p: Project) => Project) => {
     setProjects((prev) =>
       prev.map((p) => (p.id === id ? { ...mutate(p), updatedAt: Date.now() } : p)),
@@ -207,9 +217,25 @@ export default function Home() {
     }
   }
 
+  async function handleAddReference(file: File) {
+    if (referenceObjects.length >= 4) return;
+    setRefBusy(true);
+    setError(null);
+    try {
+      const blob = await prepareReferenceForUpload(file);
+      const url = await uploadBlob(blob, "reference.jpg");
+      setReferenceObjects((prev) => [...prev, { imageUrl: url, description: "" }]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Nie udało się wgrać obiektu");
+    } finally {
+      setRefBusy(false);
+    }
+  }
+
   const canSubmit =
     instruction.trim().length > 0 ||
     areas.some((a) => a.description.trim()) ||
+    referenceObjects.length > 0 ||
     cameraAngle !== null;
 
   async function handleSend() {
@@ -220,8 +246,10 @@ export default function Home() {
     const projectId = active.id;
     const parentId = current.id;
     try {
+      // Reference objects route FLUX to its multi-image model, which has no
+      // mask input — skip building one to avoid a wasted upload.
       let maskUrl: string | undefined;
-      if (prefs.provider === "flux" && areas.length > 0) {
+      if (prefs.provider === "flux" && areas.length > 0 && referenceObjects.length === 0) {
         const maskBlob = await buildMaskBlob(current.imageUrl, areas);
         maskUrl = await uploadBlob(maskBlob, "mask.png");
       }
@@ -238,6 +266,7 @@ export default function Home() {
           cameraAngle,
           areas,
           maskUrl,
+          referenceObjects,
           historySummaries: chainSummaries(active, current.id),
         }),
       });
@@ -325,7 +354,7 @@ export default function Home() {
 
   if (!loaded) {
     return (
-      <main className="flex min-h-dvh items-center justify-center text-[#8a8ba8]">
+      <main className="flex min-h-dvh items-center justify-center text-[#8a887f]">
         Ładowanie…
       </main>
     );
@@ -337,15 +366,13 @@ export default function Home() {
       <main className="mx-auto w-full max-w-4xl flex-1 p-4 sm:p-8">
         <header className="mb-6 flex flex-wrap items-start justify-between gap-2">
           <div>
-            <h1 className="text-2xl font-bold text-[#26275f]">
-              <span className="text-orange-500">✦</span> ARCHI
-            </h1>
-            <p className="text-sm text-[#8a8ba8]">Wizualizacja i edycja wnętrz z pomocą AI</p>
+            <Logo variant="full" />
+            <p className="mt-1 text-sm text-[#8a887f]">Wizualizacja i edycja wnętrz z pomocą AI</p>
           </div>
           <button
             type="button"
             onClick={() => setUsageOpen(true)}
-            className="rounded-xl border border-[#d9d9e8] bg-white px-3 py-1.5 text-sm font-medium text-[#26275f] hover:border-orange-300"
+            className="rounded-xl border border-[#dcd9d1] bg-white px-3 py-1.5 text-sm font-medium text-[#1A1A1A] hover:border-[#cdbf7a]"
           >
             📊 Zużycie
           </button>
@@ -371,13 +398,13 @@ export default function Home() {
             handleFiles(e.dataTransfer.files);
           }}
           className={`mb-4 flex flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed bg-white p-10 text-center transition-colors ${
-            dragOver ? "border-orange-400 bg-orange-50" : "border-[#d9d9e8]"
+            dragOver ? "border-[#b9a646] bg-[#f6f2e3]" : "border-[#dcd9d1]"
           }`}
         >
-          <p className="text-2xl font-semibold text-[#26275f]">
+          <p className="text-2xl font-semibold text-[#1A1A1A]">
             Wgraj <span className="italic">zdjęcie</span> wnętrza
           </p>
-          <p className="text-sm text-[#8a8ba8]">
+          <p className="text-sm text-[#8a887f]">
             Przeciągnij i upuść plik albo wybierz poniżej · JPG, PNG, WebP
           </p>
           <div className="flex flex-wrap justify-center gap-2">
@@ -385,7 +412,7 @@ export default function Home() {
               type="button"
               disabled={busy !== null}
               onClick={() => fileInputRef.current?.click()}
-              className="rounded-xl bg-orange-500 px-5 py-2.5 font-semibold text-white shadow-sm transition-colors hover:bg-orange-400 disabled:opacity-50"
+              className="rounded-xl bg-[#50344f] px-5 py-2.5 font-semibold text-white shadow-sm transition-colors hover:bg-[#684366] disabled:opacity-50"
             >
               {busy === "upload" ? "Wgrywanie…" : "Wybierz plik"}
             </button>
@@ -393,7 +420,7 @@ export default function Home() {
               type="button"
               disabled={busy !== null}
               onClick={() => cameraInputRef.current?.click()}
-              className="rounded-xl border border-[#d9d9e8] bg-white px-5 py-2.5 font-semibold text-[#26275f] transition-colors hover:border-orange-300 disabled:opacity-50"
+              className="rounded-xl border border-[#dcd9d1] bg-white px-5 py-2.5 font-semibold text-[#1A1A1A] transition-colors hover:border-[#cdbf7a] disabled:opacity-50"
             >
               📷 Zrób zdjęcie
             </button>
@@ -423,7 +450,7 @@ export default function Home() {
 
         {projects.length > 0 && (
           <section>
-            <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-[#8a8ba8]">
+            <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-[#8a887f]">
               Twoje wizualizacje
             </h2>
             <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -432,7 +459,7 @@ export default function Home() {
                 return (
                   <li
                     key={p.id}
-                    className="group relative overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-[#E8E8F0] transition-shadow hover:shadow-md"
+                    className="group relative overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-[#e8e6df] transition-shadow hover:shadow-md"
                   >
                     <button
                       type="button"
@@ -443,12 +470,12 @@ export default function Home() {
                       <img
                         src={cur.imageUrl}
                         alt={p.name}
-                        className="h-40 w-full bg-[#f0f0f6] object-cover"
+                        className="h-40 w-full bg-[#efede7] object-cover"
                         loading="lazy"
                       />
                       <div className="p-3">
-                        <p className="truncate font-semibold text-[#26275f]">{p.name}</p>
-                        <p className="text-xs text-[#8a8ba8]">
+                        <p className="truncate font-semibold text-[#1A1A1A]">{p.name}</p>
+                        <p className="text-xs text-[#8a887f]">
                           {p.nodes.length - 1} edycji · ${projectCost(p).toFixed(2)} ·{" "}
                           {new Date(p.updatedAt).toLocaleDateString("pl-PL")}
                         </p>
@@ -458,7 +485,7 @@ export default function Home() {
                       type="button"
                       onClick={() => handleDeleteProject(p.id)}
                       title="Usuń projekt"
-                      className="absolute right-2 top-2 rounded-lg bg-white/90 px-2 py-1 text-xs text-[#8a8ba8] opacity-0 shadow transition-opacity hover:text-red-500 group-hover:opacity-100"
+                      className="absolute right-2 top-2 rounded-lg bg-white/90 px-2 py-1 text-xs text-[#8a887f] opacity-0 shadow transition-opacity hover:text-red-500 group-hover:opacity-100"
                     >
                       Usuń
                     </button>
@@ -479,17 +506,15 @@ export default function Home() {
   return (
     <main className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col p-3 sm:p-5">
       <header className="mb-4 flex flex-wrap items-center gap-2">
-        <span className="text-lg font-bold text-[#26275f]">
-          <span className="text-orange-500">✦</span> ARCHI
-        </span>
+        <Logo />
         <button
           type="button"
           onClick={() => setActiveId(null)}
-          className="rounded-xl border border-[#d9d9e8] bg-white px-3 py-1.5 text-sm font-medium text-[#26275f] hover:border-orange-300"
+          className="rounded-xl border border-[#dcd9d1] bg-white px-3 py-1.5 text-sm font-medium text-[#1A1A1A] hover:border-[#cdbf7a]"
         >
           ← Projekty
         </button>
-        <h1 className="min-w-0 flex-1 truncate text-base font-semibold text-[#4c4d7a]">
+        <h1 className="min-w-0 flex-1 truncate text-base font-semibold text-[#55534d]">
           {active.name}
         </h1>
         <span
@@ -502,7 +527,7 @@ export default function Home() {
           type="button"
           onClick={() => setUsageOpen(true)}
           title="Zużycie i budżety"
-          className="rounded-xl border border-[#d9d9e8] bg-white px-3 py-1.5 text-sm font-medium text-[#26275f] hover:border-orange-300"
+          className="rounded-xl border border-[#dcd9d1] bg-white px-3 py-1.5 text-sm font-medium text-[#1A1A1A] hover:border-[#cdbf7a]"
         >
           📊
         </button>
@@ -519,9 +544,9 @@ export default function Home() {
       <div className="grid flex-1 gap-4 lg:grid-cols-[260px_minmax(0,1fr)_360px]">
         {/* Historia (lewa kolumna) */}
         <aside className="order-3 min-w-0 lg:order-1">
-          <div className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-[#E8E8F0]">
-            <h2 className="mb-1 text-sm font-bold text-[#26275f]">Historia</h2>
-            <p className="mb-2 text-xs text-[#a0a1bd]">
+          <div className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-[#e8e6df]">
+            <h2 className="mb-1 text-sm font-bold text-[#1A1A1A]">Historia</h2>
+            <p className="mb-2 text-xs text-[#a5a29a]">
               Kliknij wersję, aby do niej wrócić — kolejna edycja utworzy gałąź.
             </p>
             <div className="max-h-[60vh] overflow-y-auto pr-1 lg:max-h-[calc(100vh-180px)]">
@@ -545,8 +570,8 @@ export default function Home() {
               disabled={isRootCurrent}
               className={`rounded-xl border px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-40 ${
                 compare
-                  ? "border-orange-400 bg-orange-50 text-orange-600"
-                  : "border-[#d9d9e8] bg-white text-[#26275f] hover:border-orange-300"
+                  ? "border-[#b9a646] bg-[#f6f2e3] text-[#50344f]"
+                  : "border-[#dcd9d1] bg-white text-[#1A1A1A] hover:border-[#cdbf7a]"
               }`}
             >
               ⇄ Przed / Po
@@ -554,7 +579,7 @@ export default function Home() {
             <button
               type="button"
               onClick={handleExport}
-              className="rounded-xl border border-[#d9d9e8] bg-white px-3 py-1.5 text-sm font-medium text-[#26275f] hover:border-orange-300"
+              className="rounded-xl border border-[#dcd9d1] bg-white px-3 py-1.5 text-sm font-medium text-[#1A1A1A] hover:border-[#cdbf7a]"
             >
               ⬇️ Pobierz
             </button>
@@ -566,7 +591,7 @@ export default function Home() {
                   className={`rounded-xl border px-2.5 py-1.5 text-sm transition-colors ${
                     current.rating === "up"
                       ? "border-emerald-400 bg-emerald-50"
-                      : "border-[#d9d9e8] bg-white hover:border-emerald-300"
+                      : "border-[#dcd9d1] bg-white hover:border-emerald-300"
                   }`}
                 >
                   👍
@@ -577,7 +602,7 @@ export default function Home() {
                   className={`rounded-xl border px-2.5 py-1.5 text-sm transition-colors ${
                     current.rating === "down"
                       ? "border-red-400 bg-red-50"
-                      : "border-[#d9d9e8] bg-white hover:border-red-300"
+                      : "border-[#dcd9d1] bg-white hover:border-red-300"
                   }`}
                 >
                   👎
@@ -604,9 +629,9 @@ export default function Home() {
             {busy === "edit" && (
               <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-white/70 backdrop-blur-sm">
                 <div className="text-center">
-                  <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-orange-500 border-t-transparent" />
-                  <p className="text-sm font-medium text-[#26275f]">Generowanie edycji…</p>
-                  <p className="text-xs text-[#8a8ba8]">
+                  <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-[#b9a646] border-t-transparent" />
+                  <p className="text-sm font-medium text-[#1A1A1A]">Generowanie edycji…</p>
+                  <p className="text-xs text-[#8a887f]">
                     Claude tłumaczy polecenie, potem model graficzny pracuje
                   </p>
                 </div>
@@ -615,11 +640,11 @@ export default function Home() {
           </div>
 
           {current.promptEn && (
-            <details className="mt-2 text-xs text-[#8a8ba8]">
+            <details className="mt-2 text-xs text-[#8a887f]">
               <summary className="cursor-pointer select-none">
                 Prompt wysłany do modelu graficznego
               </summary>
-              <p className="mt-1 rounded-xl bg-white p-2 font-mono ring-1 ring-[#E8E8F0]">
+              <p className="mt-1 rounded-xl bg-white p-2 font-mono ring-1 ring-[#e8e6df]">
                 {current.promptEn}
               </p>
             </details>
@@ -628,7 +653,7 @@ export default function Home() {
 
         {/* Panel sterowania (prawa kolumna) */}
         <aside className="order-2 min-w-0 lg:order-3">
-          <div className="flex flex-col gap-5 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-[#E8E8F0]">
+          <div className="flex flex-col gap-5 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-[#e8e6df]">
             {/* Polecenie */}
             <div>
               {sectionLabel("Co chcesz zmienić?")}
@@ -646,9 +671,9 @@ export default function Home() {
                   rows={4}
                   maxLength={MAX_INSTRUCTION}
                   disabled={busy !== null}
-                  className="w-full resize-none rounded-xl border border-[#d9d9e8] bg-white p-3 pb-6 text-sm text-[#26275f] outline-none placeholder:text-[#b8b9d0] focus:border-orange-400 disabled:opacity-60"
+                  className="w-full resize-none rounded-xl border border-[#dcd9d1] bg-white p-3 pb-6 text-sm text-[#1A1A1A] outline-none placeholder:text-[#b8b5ac] focus:border-[#b9a646] disabled:opacity-60"
                 />
-                <span className="pointer-events-none absolute bottom-2.5 right-3 text-[11px] text-[#b8b9d0]">
+                <span className="pointer-events-none absolute bottom-2.5 right-3 text-[11px] text-[#b8b5ac]">
                   {instruction.length}/{MAX_INSTRUCTION}
                 </span>
               </div>
@@ -668,8 +693,8 @@ export default function Home() {
                       onClick={() => setCameraAngle(activeChip ? null : angle.value)}
                       className={`flex flex-col items-center gap-0.5 rounded-xl border px-2 py-2.5 text-xs font-medium transition-colors disabled:opacity-50 ${
                         activeChip
-                          ? "border-orange-400 bg-orange-50 text-orange-600"
-                          : "border-[#d9d9e8] bg-white text-[#4c4d7a] hover:border-orange-300"
+                          ? "border-[#b9a646] bg-[#f6f2e3] text-[#50344f]"
+                          : "border-[#dcd9d1] bg-white text-[#55534d] hover:border-[#cdbf7a]"
                       }`}
                     >
                       <span className="text-base leading-none">{angle.icon}</span>
@@ -683,17 +708,17 @@ export default function Home() {
             {/* Zaznacz obszar */}
             <div>
               {sectionLabel("Zaznacz obszar", true)}
-              <p className="mb-2 text-xs text-[#8a8ba8]">
+              <p className="mb-2 text-xs text-[#8a887f]">
                 Zaznacz miejsca na obrazie i opisz, co ma się w nich zmienić. Zaznaczaj z
                 zapasem — obejmij też cień i poświatę obiektu.
                 {prefs.provider === "flux" && areas.length > 0 && (
-                  <span className="text-orange-600"> Zmiany obejmą tylko zaznaczenia (inpainting).</span>
+                  <span className="text-[#50344f]"> Zmiany obejmą tylko zaznaczenia (inpainting).</span>
                 )}
               </p>
               <div className="flex flex-col gap-2">
                 {areas.map((area, i) => (
                   <div key={i} className="flex items-center gap-2">
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-orange-500 text-[11px] font-bold text-white">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#50344f] text-[11px] font-bold text-white">
                       {i + 1}
                     </span>
                     <input
@@ -706,14 +731,14 @@ export default function Home() {
                         )
                       }
                       placeholder="Opisz zmianę w tym obszarze…"
-                      className="min-w-0 flex-1 rounded-xl border border-[#d9d9e8] bg-white px-3 py-2 text-sm text-[#26275f] outline-none placeholder:text-[#b8b9d0] focus:border-orange-400 disabled:opacity-60"
+                      className="min-w-0 flex-1 rounded-xl border border-[#dcd9d1] bg-white px-3 py-2 text-sm text-[#1A1A1A] outline-none placeholder:text-[#b8b5ac] focus:border-[#b9a646] disabled:opacity-60"
                     />
                     <button
                       type="button"
                       disabled={busy !== null}
                       onClick={() => setAreas((prev) => prev.filter((_, j) => j !== i))}
                       title="Usuń zaznaczenie"
-                      className="text-[#a0a1bd] hover:text-red-500"
+                      className="text-[#a5a29a] hover:text-red-500"
                     >
                       ✕
                     </button>
@@ -725,12 +750,78 @@ export default function Home() {
                   onClick={() => setDrawMode((d) => !d)}
                   className={`rounded-xl border-2 border-dashed px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
                     drawMode
-                      ? "border-orange-400 bg-orange-50 text-orange-600"
-                      : "border-[#d9d9e8] text-[#4c4d7a] hover:border-orange-300"
+                      ? "border-[#b9a646] bg-[#f6f2e3] text-[#50344f]"
+                      : "border-[#dcd9d1] text-[#55534d] hover:border-[#cdbf7a]"
                   }`}
                 >
                   {drawMode ? "Rysuj prostokąt na obrazie…" : "+ Dodaj zaznaczenie"}
                 </button>
+              </div>
+            </div>
+
+            {/* Obiekty referencyjne */}
+            <div>
+              {sectionLabel("Obiekty referencyjne", true)}
+              <p className="mb-2 text-xs text-[#8a887f]">
+                Dodaj zdjęcia elementów, których chcesz użyć w edycji (np. lampa, mebel,
+                tekstura) — maks. 4.
+              </p>
+              <div className="flex flex-col gap-2">
+                {referenceObjects.map((ref, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={ref.imageUrl}
+                      alt={`Obiekt referencyjny ${i + 1}`}
+                      className="h-11 w-11 shrink-0 rounded-lg border border-[#dcd9d1] object-cover"
+                    />
+                    <input
+                      type="text"
+                      value={ref.description}
+                      disabled={busy !== null}
+                      onChange={(e) =>
+                        setReferenceObjects((prev) =>
+                          prev.map((r, j) =>
+                            j === i ? { ...r, description: e.target.value } : r,
+                          ),
+                        )
+                      }
+                      placeholder="Opisz ten obiekt…"
+                      className="min-w-0 flex-1 rounded-xl border border-[#dcd9d1] bg-white px-3 py-2 text-sm text-[#1A1A1A] outline-none placeholder:text-[#b8b5ac] focus:border-[#b9a646] disabled:opacity-60"
+                    />
+                    <button
+                      type="button"
+                      disabled={busy !== null}
+                      onClick={() =>
+                        setReferenceObjects((prev) => prev.filter((_, j) => j !== i))
+                      }
+                      title="Usuń obiekt referencyjny"
+                      className="text-[#a5a29a] hover:text-red-500"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                {referenceObjects.length < 4 && (
+                  <button
+                    type="button"
+                    disabled={busy !== null || refBusy}
+                    onClick={() => refInputRef.current?.click()}
+                    className="flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[#dcd9d1] px-3 py-2.5 text-sm font-medium text-[#55534d] transition-colors hover:border-[#cdbf7a] disabled:opacity-50"
+                  >
+                    {refBusy ? "Wgrywanie…" : "+ Dodaj obiekt referencyjny"}
+                  </button>
+                )}
+                <input
+                  ref={refInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files?.[0]) handleAddReference(e.target.files[0]);
+                    e.target.value = "";
+                  }}
+                />
               </div>
             </div>
 
@@ -744,17 +835,17 @@ export default function Home() {
                   onClick={() => setPrefs((p) => ({ ...p, quality: "standard" }))}
                   className={`flex items-center justify-between rounded-xl border px-3 py-2.5 text-left transition-colors disabled:opacity-50 ${
                     prefs.quality === "standard"
-                      ? "border-orange-400 bg-orange-50"
-                      : "border-[#d9d9e8] bg-white hover:border-orange-300"
+                      ? "border-[#b9a646] bg-[#f6f2e3]"
+                      : "border-[#dcd9d1] bg-white hover:border-[#cdbf7a]"
                   }`}
                 >
                   <span>
-                    <span className="block text-sm font-semibold text-[#26275f]">⚡ Szybka (test)</span>
-                    <span className="block text-xs text-[#8a8ba8]">
+                    <span className="block text-sm font-semibold text-[#1A1A1A]">⚡ Szybka (test)</span>
+                    <span className="block text-xs text-[#8a887f]">
                       Do sprawdzenia, czy zmiana idzie w dobrą stronę
                     </span>
                   </span>
-                  <span className="shrink-0 rounded-full bg-[#f0f0f6] px-2 py-0.5 text-xs font-semibold text-[#4c4d7a]">
+                  <span className="shrink-0 rounded-full bg-[#efede7] px-2 py-0.5 text-xs font-semibold text-[#55534d]">
                     {imageCost("standard")}
                   </span>
                 </button>
@@ -764,17 +855,17 @@ export default function Home() {
                   onClick={() => setPrefs((p) => ({ ...p, quality: "high" }))}
                   className={`flex items-center justify-between rounded-xl border px-3 py-2.5 text-left transition-colors disabled:opacity-50 ${
                     prefs.quality === "high"
-                      ? "border-orange-400 bg-orange-50"
-                      : "border-[#d9d9e8] bg-white hover:border-orange-300"
+                      ? "border-[#b9a646] bg-[#f6f2e3]"
+                      : "border-[#dcd9d1] bg-white hover:border-[#cdbf7a]"
                   }`}
                 >
                   <span>
-                    <span className="block text-sm font-semibold text-[#26275f]">✨ Wysoka</span>
-                    <span className="block text-xs text-[#8a8ba8]">
+                    <span className="block text-sm font-semibold text-[#1A1A1A]">✨ Wysoka</span>
+                    <span className="block text-xs text-[#8a887f]">
                       Maksymalna jakość i realizm — wersja finalna
                     </span>
                   </span>
-                  <span className="shrink-0 rounded-full bg-[#f0f0f6] px-2 py-0.5 text-xs font-semibold text-[#4c4d7a]">
+                  <span className="shrink-0 rounded-full bg-[#efede7] px-2 py-0.5 text-xs font-semibold text-[#55534d]">
                     {imageCost("high")}
                   </span>
                 </button>
@@ -782,30 +873,30 @@ export default function Home() {
             </div>
 
             {/* Modele */}
-            <details className="rounded-xl border border-[#E8E8F0] p-3">
-              <summary className="cursor-pointer select-none text-sm font-bold text-[#26275f]">
+            <details className="rounded-xl border border-[#e8e6df] p-3">
+              <summary className="cursor-pointer select-none text-sm font-bold text-[#1A1A1A]">
                 Modele AI
               </summary>
               <div className="mt-3 flex flex-col gap-3">
-                <label className="flex flex-col gap-1 text-xs font-medium text-[#8a8ba8]">
+                <label className="flex flex-col gap-1 text-xs font-medium text-[#8a887f]">
                   Model graficzny
                   <select
                     value={prefs.provider}
                     onChange={(e) =>
                       setPrefs((p) => ({ ...p, provider: e.target.value as ProviderName }))
                     }
-                    className="rounded-xl border border-[#d9d9e8] px-2 py-2 text-sm text-[#26275f] outline-none focus:border-orange-400"
+                    className="rounded-xl border border-[#dcd9d1] px-2 py-2 text-sm text-[#1A1A1A] outline-none focus:border-[#b9a646]"
                   >
                     <option value="flux">FLUX Kontext (fal.ai) — edycja + inpainting</option>
                     <option value="gemini">Nano Banana Pro (Google)</option>
                   </select>
                 </label>
-                <label className="flex flex-col gap-1 text-xs font-medium text-[#8a8ba8]">
+                <label className="flex flex-col gap-1 text-xs font-medium text-[#8a887f]">
                   Model językowy (tłumaczenie poleceń)
                   <select
                     value={prefs.claudeModel}
                     onChange={(e) => setPrefs((p) => ({ ...p, claudeModel: e.target.value }))}
-                    className="rounded-xl border border-[#d9d9e8] px-2 py-2 text-sm text-[#26275f] outline-none focus:border-orange-400"
+                    className="rounded-xl border border-[#dcd9d1] px-2 py-2 text-sm text-[#1A1A1A] outline-none focus:border-[#b9a646]"
                   >
                     {CLAUDE_MODELS.map((m) => (
                       <option key={m.value} value={m.value}>
@@ -821,7 +912,7 @@ export default function Home() {
               type="button"
               disabled={busy !== null || !canSubmit}
               onClick={handleSend}
-              className="rounded-xl bg-orange-500 py-3 font-semibold text-white shadow-sm transition-colors hover:bg-orange-400 disabled:opacity-40"
+              className="rounded-xl bg-[#50344f] py-3 font-semibold text-white shadow-sm transition-colors hover:bg-[#684366] disabled:opacity-40"
             >
               {busy === "edit" ? "Generowanie…" : "✨ Generuj wizualizację"}
             </button>

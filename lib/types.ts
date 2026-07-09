@@ -11,6 +11,12 @@ export interface EditArea {
   description: string;
 }
 
+/** Image of an object/material the user wants used in the edit. */
+export interface ReferenceObject {
+  imageUrl: string;
+  description: string;
+}
+
 export interface EditRequestBody {
   imageUrl: string;
   instruction: string;
@@ -21,6 +27,7 @@ export interface EditRequestBody {
   areas?: EditArea[];
   /** Optional inpainting mask (white = edit, black = keep), same size as image. */
   maskUrl?: string;
+  referenceObjects?: ReferenceObject[];
   historySummaries?: string[];
 }
 

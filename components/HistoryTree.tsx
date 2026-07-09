@@ -36,20 +36,20 @@ export default function HistoryTree({ project, onSelect, disabled }: Props) {
           onClick={() => onSelect(node.id)}
           className={`mb-1.5 flex w-full items-center gap-2 rounded-xl border p-2 text-left transition-colors ${
             isCurrent
-              ? "border-orange-400 bg-orange-50"
-              : "border-[#E8E8F0] bg-white hover:border-[#c9c9de]"
+              ? "border-[#b9a646] bg-[#f6f2e3]"
+              : "border-[#e8e6df] bg-white hover:border-[#c9c9de]"
           } ${disabled ? "opacity-60" : "cursor-pointer"}`}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={node.imageUrl}
             alt=""
-            className="h-12 w-12 shrink-0 rounded-lg bg-[#f0f0f6] object-cover"
+            className="h-12 w-12 shrink-0 rounded-lg bg-[#efede7] object-cover"
             loading="lazy"
           />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-[#26275f]">{label}</p>
-            <p className="text-xs text-[#8a8ba8]">
+            <p className="truncate text-sm font-medium text-[#1A1A1A]">{label}</p>
+            <p className="text-xs text-[#8a887f]">
               {new Date(node.createdAt).toLocaleTimeString("pl-PL", {
                 hour: "2-digit",
                 minute: "2-digit",
@@ -58,7 +58,7 @@ export default function HistoryTree({ project, onSelect, disabled }: Props) {
                 <> · ${node.costUsd.toFixed(3)}</>
               )}
               {node.provider && <> · {node.provider === "flux" ? "FLUX" : "Nano Banana"}</>}
-              {isCurrent && <span className="font-medium text-orange-500"> · aktualna</span>}
+              {isCurrent && <span className="font-medium text-[#b9a646]"> · aktualna</span>}
             </p>
           </div>
         </button>

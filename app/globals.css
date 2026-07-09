@@ -1,10 +1,10 @@
 @import "tailwindcss";
 
-/* Light, Raya-inspired palette: soft lavender-grey background, navy text,
-   white cards, orange accents. */
+/* dobrostanSTUDIO* brand palette: warm off-white background, charcoal text,
+   white cards, plum (#50344f) primary and gold (#b9a646) accents. */
 :root {
-  --background: #f5f5fa;
-  --foreground: #26275f;
+  --background: #F4F4F2;
+  --foreground: #1A1A1A;
   color-scheme: light;
 }
 
@@ -24,10 +24,10 @@ body {
 select,
 option {
   background-color: #ffffff;
-  color: #26275f;
+  color: #1A1A1A;
 }
 
 ::selection {
-  background: #fdba74;
-  color: #26275f;
+  background: #d8cc8f;
+  color: #1A1A1A;
 }

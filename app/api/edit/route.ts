@@ -44,6 +44,21 @@ export async function POST(request: NextRequest) {
   try {
     const provider = getProvider(requestedProvider);
     const refs = referenceObjects.filter((r) => r.imageUrl).slice(0, 4);
+
+    // FLUX's multi-image model (the only maskless way to use reference photos
+    // there) repeatedly leaked the reference's own framing into results,
+    // rewriting half the scene. Refuse that combination outright — the mask
+    // path is the only reliable one for references on FLUX.
+    if (provider.name === "flux" && refs.length > 0 && areas.length === 0) {
+      return NextResponse.json(
+        {
+          error:
+            "Przy modelu FLUX obiekt referencyjny wymaga zaznaczenia obszaru, w którym ma się pojawić — edycja przejdzie wtedy przez maskę i reszta zdjęcia jest gwarantowanie nietknięta. Zaznacz obszar albo przełącz model na Nano Banana Pro.",
+        },
+        { status: 400 },
+      );
+    }
+
     // A real pixel mask (FLUX Fill) always wins over reference images when an
     // area is marked: Fill mechanically preserves everything outside the
     // mask, which a text-only multi-image edit cannot guarantee. Claude still

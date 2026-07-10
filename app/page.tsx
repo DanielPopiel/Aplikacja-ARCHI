@@ -232,11 +232,18 @@ export default function Home() {
     }
   }
 
+  // FLUX can only use reference photos reliably through the mask path —
+  // without a marked area the maskless multi-image model leaks the
+  // reference's framing into the result. Block that combination up front.
+  const fluxRefsNeedArea =
+    prefs.provider === "flux" && referenceObjects.length > 0 && areas.length === 0;
+
   const canSubmit =
-    instruction.trim().length > 0 ||
-    areas.some((a) => a.description.trim()) ||
-    referenceObjects.length > 0 ||
-    cameraAngle !== null;
+    !fluxRefsNeedArea &&
+    (instruction.trim().length > 0 ||
+      areas.some((a) => a.description.trim()) ||
+      referenceObjects.length > 0 ||
+      cameraAngle !== null);
 
   async function handleSend() {
     if (!canSubmit || !active || !current || busy) return;
@@ -772,6 +779,14 @@ export default function Home() {
                 Dodaj zdjęcia elementów, których chcesz użyć w edycji (np. lampa, mebel,
                 tekstura) — maks. 4.
               </p>
+              {fluxRefsNeedArea && (
+                <p className="mb-2 rounded-xl border border-amber-300 bg-amber-50 p-2.5 text-xs font-medium text-amber-800">
+                  ⚠️ Przy modelu FLUX zaznacz obszar, w którym ma pojawić się obiekt
+                  referencyjny — edycja przejdzie wtedy przez maskę i reszta zdjęcia
+                  będzie gwarantowanie nietknięta. Bez obszaru generowanie jest
+                  zablokowane (możesz też przełączyć model na Nano Banana Pro).
+                </p>
+              )}
               <div className="flex flex-col gap-2">
                 {referenceObjects.map((ref, i) => (
                   <div key={i} className="flex items-center gap-2">

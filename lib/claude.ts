@@ -53,6 +53,7 @@ General rules for the "prompt" field:
 - Use exact colors, materials and finishes ("light oak planks with a matte finish", not "nicer floor").
 - ALWAYS end with an explicit preservation clause listing what must stay identical, e.g.: "Keep everything else — the camera angle and framing, room layout, all other furniture, materials and lighting — exactly the same." Adjust the list so it does not contradict the edit (drop "lighting" for lighting edits, "camera angle" for camera edits).
 - If earlier edits from this session are listed, treat them as already applied to the image you see and keep them intact.
+- CRITICAL — image models trained on real-estate/interior photography frequently hallucinate a fake photographer's watermark or logo in a corner of the result, because so much training data in that genre carries one. Every prompt, regardless of edit type, must therefore end with: "No watermark, no logo, no signature, no studio stamp, no added text or graphic overlay anywhere in the image." This is in addition to, not instead of, the preservation clause above.
 
 Edit-type playbook — first classify the user's intent, then apply the matching pattern:
 1. REMOVAL (no mask): "Remove [object]. Seamlessly reconstruct the area behind it to match the surrounding [surface] texture, color and lighting." + preservation clause.

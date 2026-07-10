@@ -115,6 +115,8 @@ export const fluxKontextProvider: ImageEditProvider = {
     }
 
     if (maskUrl) {
+      // Fill works directly on the given image + mask, so it already
+      // preserves the input's own dimensions — no aspect_ratio needed.
       const image = await callFal(MODEL_FILL, {
         prompt,
         image_url: imageUrl,
@@ -130,10 +132,16 @@ export const fluxKontextProvider: ImageEditProvider = {
       };
     }
 
+    // Plain Kontext calls are txt+image-conditioned generation with an
+    // undocumented default canvas — without an explicit aspect_ratio the
+    // output can drift from the input's proportions, which then made the
+    // image visibly "jump" in size when flipping through edit history.
     const model = quality === "high" ? MODEL_HIGH : MODEL_STANDARD;
+    const aspectRatio = await closestAspectRatio(imageUrl);
     const image = await callFal(model, {
       prompt,
       image_url: imageUrl,
+      ...(aspectRatio ? { aspect_ratio: aspectRatio } : {}),
       output_format: "jpeg",
       safety_tolerance: "2",
     });

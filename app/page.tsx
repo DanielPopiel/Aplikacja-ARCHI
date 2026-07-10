@@ -403,26 +403,30 @@ export default function Home() {
    * the same baseline node so runs stay comparable. Meant to be re-run after
    * a playbook/model change to see whether known failure modes come back —
    * rate results with 👍👎 and compare the "· <Model>" tag per node.
+   *
+   * Runs all 6 IN PARALLEL — a sequential chain kept the batch exposed to a
+   * page-level interruption (reload, another session's hot-reload) for up
+   * to ~2 minutes; if that happened mid-chain the remaining tests silently
+   * never ran. Parallel cuts that window to one request's duration.
    */
   async function runTestSuite() {
     if (!active || !current || busy || testProgress) return;
     const projectId = active.id;
     const baseNode = current;
+    const historySummariesSnapshot = chainSummaries(active, baseNode.id);
     setBusy("edit");
     setError(null);
-    const failedLabels: string[] = [];
 
-    for (let i = 0; i < TEST_SUITE.length; i++) {
-      const testCase = TEST_SUITE[i];
-      setTestProgress({ index: i + 1, total: TEST_SUITE.length, label: testCase.label });
-      try {
+    let completed = 0;
+    const results = await Promise.allSettled(
+      TEST_SUITE.map(async (testCase) => {
         const data = await submitEdit({
           imageUrl: baseNode.imageUrl,
           instruction: testCase.instruction,
           provider: prefs.provider,
           quality: "standard",
           claudeModel: prefs.claudeModel,
-          historySummaries: chainSummaries(active, baseNode.id),
+          historySummaries: historySummariesSnapshot,
         });
         const node = buildHistoryNode({
           parentId: baseNode.id,
@@ -431,11 +435,20 @@ export default function Home() {
           testLabel: testCase.label,
         });
         updateProject(projectId, (p) => ({ ...p, nodes: [...p.nodes, node] }));
-      } catch (err) {
-        failedLabels.push(testCase.label);
-        console.error(`Test suite: "${testCase.label}" failed:`, err);
+        completed += 1;
+        setTestProgress({ index: completed, total: TEST_SUITE.length, label: testCase.label });
+        return testCase.label;
+      }),
+    );
+
+    const failedLabels = results
+      .map((r, i) => (r.status === "rejected" ? TEST_SUITE[i].label : null))
+      .filter((x): x is string => x !== null);
+    results.forEach((r, i) => {
+      if (r.status === "rejected") {
+        console.error(`Test suite: "${TEST_SUITE[i].label}" failed:`, r.reason);
       }
-    }
+    });
 
     setTestProgress(null);
     setBusy(null);
@@ -458,6 +471,14 @@ export default function Home() {
    * side in the history tree — the requested "porównaj na kilku modelach
    * naraz" feature. The mask (if any) is model-independent, so it's built
    * once and reused across variants rather than rebuilt per model.
+   *
+   * Fires all variants IN PARALLEL (Promise.allSettled), not one after
+   * another: a sequential chain of 3 x ~20s requests spends a full minute
+   * exposed to any page-level interruption (reload, another dev session's
+   * hot-reload touching this same project) — if that happens mid-chain, the
+   * async function's closure is torn down and the remaining variants never
+   * run, with nothing left to show an error for. Parallel cuts that window
+   * to ~20s and is also just faster.
    */
   async function runModelComparison() {
     if (!canSubmit || !active || !current || busy || compareModels.length < 2) return;
@@ -466,6 +487,8 @@ export default function Home() {
     setDrawMode(false);
     const projectId = active.id;
     const parentId = current.id;
+    const baseImageUrl = current.imageUrl;
+    const historySummariesSnapshot = chainSummaries(active, current.id);
     const instructionText =
       instruction.trim() ||
       areas
@@ -473,22 +496,21 @@ export default function Home() {
         .filter(Boolean)
         .join("; ") ||
       "Zmiana kadru";
-    const failedLabels: string[] = [];
+    const total = compareModels.length;
 
     try {
       let maskUrl: string | undefined;
       if (prefs.provider === "flux" && areas.length > 0) {
-        const maskBlob = await buildMaskBlob(current.imageUrl, areas);
+        const maskBlob = await buildMaskBlob(baseImageUrl, areas);
         maskUrl = await uploadBlob(maskBlob, "mask.png");
       }
 
-      for (let i = 0; i < compareModels.length; i++) {
-        const model = compareModels[i];
-        const modelLabel = CLAUDE_MODELS.find((m) => m.value === model)?.label ?? model;
-        setCompareProgress({ index: i + 1, total: compareModels.length, label: modelLabel });
-        try {
+      let completed = 0;
+      const results = await Promise.allSettled(
+        compareModels.map(async (model) => {
+          const modelLabel = CLAUDE_MODELS.find((m) => m.value === model)?.label ?? model;
           const data = await submitEdit({
-            imageUrl: current.imageUrl,
+            imageUrl: baseImageUrl,
             instruction: instruction.trim(),
             provider: prefs.provider,
             quality: prefs.quality,
@@ -497,27 +519,38 @@ export default function Home() {
             areas,
             maskUrl,
             referenceObjects,
-            historySummaries: chainSummaries(active, current.id),
+            historySummaries: historySummariesSnapshot,
           });
           const node = buildHistoryNode({ parentId, data, instructionPl: instructionText });
           updateProject(projectId, (p) => ({ ...p, nodes: [...p.nodes, node] }));
-        } catch (err) {
-          failedLabels.push(modelLabel);
-          console.error(`Porównanie modeli: "${modelLabel}" nie powiodło się:`, err);
+          completed += 1;
+          setCompareProgress({ index: completed, total, label: modelLabel });
+          return modelLabel;
+        }),
+      );
+
+      const failedLabels = results
+        .map((r, i) =>
+          r.status === "rejected"
+            ? (CLAUDE_MODELS.find((m) => m.value === compareModels[i])?.label ?? compareModels[i])
+            : null,
+        )
+        .filter((x): x is string => x !== null);
+      results.forEach((r, i) => {
+        if (r.status === "rejected") {
+          console.error(`Porównanie modeli: "${compareModels[i]}" nie powiodło się:`, r.reason);
         }
-      }
+      });
+
       setInstruction("");
+      if (failedLabels.length > 0) {
+        setError(`${failedLabels.length}/${total} wariantów nie powiodło się: ${failedLabels.join(", ")}.`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Porównanie nie powiodło się");
     } finally {
       setCompareProgress(null);
       setBusy(null);
-    }
-
-    if (failedLabels.length > 0) {
-      setError(
-        `${failedLabels.length}/${compareModels.length} wariantów nie powiodło się: ${failedLabels.join(", ")}.`,
-      );
     }
   }
 

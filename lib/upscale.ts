@@ -30,12 +30,18 @@ export interface NormalizedResult {
 }
 
 /**
- * Final-quality tier: bring the generated result to the SAME pixel
- * dimensions as the image that was edited, so quality never degrades along
- * the edit chain. Image models output ~1MP; when the result is smaller than
- * the input it goes through fal.ai's AuraSR (4x) first, then is snapped to
- * the input's exact size (or its short side, if the generator deliberately
- * changed the aspect ratio, e.g. for camera-angle edits).
+ * Bring the generated result to the EXACT SAME pixel dimensions as the image
+ * that was edited, so the output size never drifts from the source photo
+ * along the edit chain — regardless of quality tier. Image models output
+ * their own canvas size (~1MP, from a limited set of aspect-ratio presets),
+ * so this always runs, even when the requested aspect_ratio was already the
+ * closest match: "closest preset" still leaves a residual mismatch that
+ * needs a final snap to the exact width/height.
+ *
+ * Cost is tier-gated: when the result is smaller than the input, "high"
+ * quality pays for one fal.ai AuraSR (4x) pass first for real upscaled
+ * detail; "standard" quality just does a plain resize (free, softer) so the
+ * cheap preview tier stays cheap.
  */
 export async function normalizeToInputSize(opts: {
   /** Result URL (fal) — enables AuraSR upscaling. */
@@ -44,6 +50,8 @@ export async function normalizeToInputSize(opts: {
   buffer?: Buffer;
   mimeType: string;
   input: ImageDims;
+  /** Only "high" quality pays for the AuraSR upscale pass. */
+  allowPaidUpscale: boolean;
 }): Promise<NormalizedResult> {
   let buffer = opts.buffer ?? (await fetchImageBytes(opts.imageUrl!)).buffer;
   let mimeType = opts.mimeType;
@@ -53,8 +61,9 @@ export async function normalizeToInputSize(opts: {
   const inputShort = Math.min(opts.input.width, opts.input.height);
   let outShort = Math.min(meta.width ?? 0, meta.height ?? 0);
 
-  // Clearly smaller than the input and fal can read it → one AuraSR pass.
-  if (outShort > 0 && outShort < inputShort * 0.95 && opts.imageUrl) {
+  // Clearly smaller than the input and fal can read it → one AuraSR pass
+  // (only worth paying for on the "high" tier).
+  if (opts.allowPaidUpscale && outShort > 0 && outShort < inputShort * 0.95 && opts.imageUrl) {
     const upscaled = await callFal(MODEL_UPSCALE, { image_url: opts.imageUrl });
     const bytes = await fetchImageBytes(upscaled.url);
     buffer = bytes.buffer;

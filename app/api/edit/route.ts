@@ -90,20 +90,25 @@ export async function POST(request: NextRequest) {
       referenceImageUrls: useMask ? undefined : refs.map((r) => r.imageUrl),
     });
 
-    // 3. Final quality: match the output 1:1 to the edited image's pixel
-    //    dimensions (upscaling via AuraSR when the model produced less).
-    //    Standard quality stays as the model made it — small, fast, cheap.
+    // 3. Always match the output 1:1 to the edited image's pixel dimensions,
+    //    on every quality tier — the aspect_ratio param on the image model
+    //    only picks the closest of a handful of presets, which still leaves
+    //    a residual mismatch that needs a final exact-size snap. Only "high"
+    //    quality pays for a real AuraSR upscale pass when the model's output
+    //    is smaller than the input; "standard" gets a free plain resize so
+    //    the cheap preview tier stays cheap.
     let finalBuffer: Buffer;
     let finalMime = result.mimeType;
     let upscaleCost = 0;
 
-    const inputDims = quality === "high" ? await readImageDims(imageUrl) : null;
+    const inputDims = await readImageDims(imageUrl);
     if (inputDims) {
       const normalized = await normalizeToInputSize({
         imageUrl: result.imageUrl,
         buffer: result.imageBase64 ? Buffer.from(result.imageBase64, "base64") : undefined,
         mimeType: result.mimeType,
         input: inputDims,
+        allowPaidUpscale: quality === "high",
       });
       finalBuffer = normalized.buffer;
       finalMime = normalized.mimeType;

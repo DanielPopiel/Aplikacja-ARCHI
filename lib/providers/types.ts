@@ -21,8 +21,6 @@ export interface GenerateEditResult {
   costUsd: number;
   /** Which concrete model/endpoint handled the edit (for history/debug). */
   model: string;
-  /** True when the output is already at final (>=2160px short side) quality. */
-  nativeHighRes?: boolean;
 }
 
 export interface ImageEditProvider {

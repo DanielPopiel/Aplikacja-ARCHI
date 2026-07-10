@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import type { EditRequestBody, EditResponseBody } from "@/lib/types";
 import { translateInstruction } from "@/lib/claude";
 import { getProvider } from "@/lib/providers";
-import { persistImage, persistImageFromUrl } from "@/lib/storage";
-import { ensureHighRes } from "@/lib/upscale";
+import { persistImage } from "@/lib/storage";
+import { fetchImageBytes } from "@/lib/image-utils";
+import { normalizeToInputSize, readImageDims } from "@/lib/upscale";
 
 // Claude + image generation can take a while; allow the max on Vercel hobby.
 export const maxDuration = 300;
@@ -89,36 +90,30 @@ export async function POST(request: NextRequest) {
       referenceImageUrls: useMask ? undefined : refs.map((r) => r.imageUrl),
     });
 
-    // 3. High tier: bring the output up to the target resolution (short side
-    //    ~2160px) unless the model already produced it natively (Gemini 4K).
+    // 3. Final quality: match the output 1:1 to the edited image's pixel
+    //    dimensions (upscaling via AuraSR when the model produced less).
+    //    Standard quality stays as the model made it — small, fast, cheap.
     let finalBuffer: Buffer;
     let finalMime = result.mimeType;
     let upscaleCost = 0;
 
-    if (result.imageBase64) {
+    const inputDims = quality === "high" ? await readImageDims(imageUrl) : null;
+    if (inputDims) {
+      const normalized = await normalizeToInputSize({
+        imageUrl: result.imageUrl,
+        buffer: result.imageBase64 ? Buffer.from(result.imageBase64, "base64") : undefined,
+        mimeType: result.mimeType,
+        input: inputDims,
+      });
+      finalBuffer = normalized.buffer;
+      finalMime = normalized.mimeType;
+      upscaleCost = normalized.extraCostUsd;
+    } else if (result.imageBase64) {
       finalBuffer = Buffer.from(result.imageBase64, "base64");
-    } else if (quality === "high" && !result.nativeHighRes) {
-      const hires = await ensureHighRes(result.imageUrl!);
-      finalBuffer = hires.buffer;
-      finalMime = hires.mimeType;
-      upscaleCost = hires.extraCostUsd;
     } else {
-      const persisted = await persistImageFromUrl(result.imageUrl!);
-      const imageCost = result.costUsd;
-      const response: EditResponseBody = {
-        imageUrl: persisted,
-        promptEn: translation.promptEn,
-        summaryPl: translation.summaryPl,
-        provider: provider.name,
-        quality,
-        costUsd: {
-          claude: translation.costUsd,
-          image: imageCost,
-          total: translation.costUsd + imageCost,
-        },
-        claudeTokens: translation.tokens,
-      };
-      return NextResponse.json(response);
+      const bytes = await fetchImageBytes(result.imageUrl!);
+      finalBuffer = bytes.buffer;
+      finalMime = bytes.mimeType;
     }
 
     const persistedUrl = await persistImage(finalBuffer, finalMime);

@@ -31,10 +31,11 @@ polecenie PL ──► Claude (Fable 5) ──► precyzyjny prompt EN ──►
   natywnie jako dodatkowe obrazy wejściowe. **Z zaznaczonym obszarem przy FLUX**
   zdjęcia referencyjne nie trafiają do modelu graficznego (Fill przyjmuje tylko jeden
   obraz + maskę) — Claude opisuje ich wygląd słownie w promptcie zamiast tego.
-- **Jakość** — „Szybka (test)" (FLUX Kontext Pro / Gemini 1K, taniej) do sprawdzania
-  kierunku zmian i „Wysoka" na wersję finalną: FLUX Kontext Max + automatyczny
-  upscaling do ~2160px na krótszym boku (AuraSR przez fal.ai), Gemini generuje
-  natywnie w 4K. Wgrywane zdjęcia też trzymają jakość do 2160×4096px.
+- **Jakość** — „Szybka (test)" (FLUX Kontext Pro / Gemini 1K, taniej) to mały,
+  szybki podgląd do sprawdzania kierunku zmian; „Wysoka" to wersja finalna
+  w **dokładnie tych samych wymiarach co edytowany obraz** (FLUX Kontext Max /
+  Gemini 4K + automatyczny upscaling AuraSR, gdy model wygenerował mniej).
+  Wgrywane zdjęcia trzymają jakość do 2160×4096px.
 - **Kąt kamery** — chipy (niski/wysoki/z lewej/z prawej/detal/szeroki kadr)
   dokładane do promptu.
 - **Modele graficzne** — FLUX (fal.ai) i **Nano Banana Pro** (Gemini 3 Pro Image),

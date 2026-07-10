@@ -561,9 +561,22 @@ export default function Home() {
               <HistoryTree
                 project={active}
                 disabled={busy !== null}
-                onSelect={(nodeId) =>
-                  updateProject(active.id, (p) => ({ ...p, currentNodeId: nodeId }))
-                }
+                onSelect={(nodeId) => {
+                  updateProject(active.id, (p) => ({ ...p, currentNodeId: nodeId }));
+                  // Recall the instruction typed FROM this version (its latest
+                  // child edit) so the user can tweak and retry — but never
+                  // overwrite text they are currently composing.
+                  if (!instruction.trim()) {
+                    const children = active.nodes
+                      .filter((n) => n.parentId === nodeId)
+                      .sort((a, b) => b.createdAt - a.createdAt);
+                    const recalled =
+                      children[0]?.instructionPl ??
+                      nodeById(active, nodeId)?.instructionPl ??
+                      "";
+                    if (recalled) setInstruction(recalled.slice(0, MAX_INSTRUCTION));
+                  }
+                }}
               />
             </div>
           </div>
@@ -863,7 +876,7 @@ export default function Home() {
                   <span>
                     <span className="block text-sm font-semibold text-[#1A1A1A]">⚡ Szybka (test)</span>
                     <span className="block text-xs text-[#8a887f]">
-                      Do sprawdzenia, czy zmiana idzie w dobrą stronę
+                      Szybki, tani podgląd w mniejszym rozmiarze
                     </span>
                   </span>
                   <span className="shrink-0 rounded-full bg-[#efede7] px-2 py-0.5 text-xs font-semibold text-[#55534d]">
@@ -883,7 +896,7 @@ export default function Home() {
                   <span>
                     <span className="block text-sm font-semibold text-[#1A1A1A]">✨ Wysoka</span>
                     <span className="block text-xs text-[#8a887f]">
-                      Maksymalna jakość i realizm — wersja finalna
+                      Wersja finalna — rozmiar 1:1 jak edytowany obraz
                     </span>
                   </span>
                   <span className="shrink-0 rounded-full bg-[#efede7] px-2 py-0.5 text-xs font-semibold text-[#55534d]">

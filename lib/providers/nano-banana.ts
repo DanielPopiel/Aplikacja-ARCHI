@@ -98,7 +98,6 @@ export const nanoBananaProvider: ImageEditProvider = {
       mimeType: imagePart.inlineData.mimeType || "image/png",
       costUsd: quality === "high" ? GEMINI_4K_COST_USD : GEMINI_COST_USD,
       model: GEMINI_MODEL,
-      nativeHighRes: quality === "high",
     };
   },
 };

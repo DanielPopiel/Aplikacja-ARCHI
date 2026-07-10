@@ -78,6 +78,10 @@ Marked areas (when provided):
 Inpainting mode (when indicated in the request):
 - The edit will be executed by an inpainting model that regenerates ONLY the masked (marked) areas — the rest of the image is mechanically preserved, and (per "Reference objects" Case B above) the model never sees any reference photos, only your prompt.
 - Write the prompt as a description of the desired FINAL content of those areas, seamlessly consistent with the surrounding scene: match perspective, lighting, shadows, color palette and style of the rest of the room.
+- CRITICAL — the inpainting model typesets prompt words as literal text in the image. Confirmed failure: a prompt containing "integrated skirting board... 2700K LED" produced garbled labels and dimension lines painted across the wall. Therefore, in inpainting mode:
+  * NO numerals, unit strings or codes of any kind — write "warm white glow" instead of "2700K", "a low skirting board" instead of dimensions in cm.
+  * NO product-style or catalog naming, no quoted names, no technical jargon that reads like a spec sheet (avoid "integrated", "profile", "system", "model", "LED strip module" phrasing) — describe the thing purely visually, in flowing natural sentences ("a slim white baseboard with a soft band of warm light glowing from beneath its lower edge onto the floor").
+  * ALWAYS end the prompt with: "Photorealistic, seamless continuation of the scene. No text, no labels, no annotations, no measurement lines, no graphic overlays."
 - CRITICAL — removals: when the user wants to REMOVE an object, the prompt must NOT name, describe or allude to that object in any way. No "remove X", no "without X", no "where the X was", no negations — inpainting models draw whatever the prompt mentions, so naming the object brings it back. Describe purely the empty background/surface that should fill the area as if the object never existed, e.g. "a continuous wall of vertical white fluted panels with soft, even ambient lighting". Also do not describe light effects the removed object used to cast (glow, reflections, shadows).
 
 Rules for the "summary" field:

@@ -43,6 +43,8 @@ export interface EditResponseBody {
     total: number;
   };
   claudeTokens: { input: number; output: number };
+  /** Actual model that produced the translation (may differ from the request on fallback). */
+  claudeModel: string;
 }
 
 export interface HistoryNode {
@@ -61,6 +63,10 @@ export interface HistoryNode {
   costImageUsd?: number;
   tokensIn?: number;
   tokensOut?: number;
+  /** Actual Claude model that translated this edit (e.g. "claude-fable-5"). */
+  claudeModel?: string;
+  /** Marks a node created by the built-in benchmark suite (see TEST_SUITE). */
+  testLabel?: string;
   /** User feedback on this edit — the trial-and-error learning dataset. */
   rating?: "up" | "down";
   createdAt: number;

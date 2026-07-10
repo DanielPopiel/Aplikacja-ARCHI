@@ -8,6 +8,19 @@ interface Props {
   disabled?: boolean;
 }
 
+/** Short display label for a Claude model id, e.g. "claude-fable-5" -> "Fable 5". */
+function claudeModelLabel(model?: string): string | null {
+  if (!model) return null;
+  if (model.startsWith("claude-fable")) return "Fable 5";
+  if (model.startsWith("claude-mythos")) return "Mythos 5";
+  if (model.startsWith("claude-opus-4-8")) return "Opus 4.8";
+  if (model.startsWith("claude-opus")) return "Opus";
+  if (model.startsWith("claude-sonnet-5")) return "Sonnet 5";
+  if (model.startsWith("claude-sonnet")) return "Sonnet";
+  if (model.startsWith("claude-haiku")) return "Haiku";
+  return model.replace("claude-", "");
+}
+
 /**
  * History as a tree: every edit is a node, branches happen when the user
  * goes back to an earlier version and continues from there.
@@ -26,7 +39,10 @@ export default function HistoryTree({ project, onSelect, disabled }: Props) {
   const renderNode = (node: HistoryNode, depth: number): React.ReactNode => {
     const isCurrent = node.id === project.currentNodeId;
     const children = childrenOf.get(node.id) ?? [];
-    const label = node.instructionPl === null ? "Oryginał" : node.summaryPl || node.instructionPl;
+    const label =
+      node.testLabel ??
+      (node.instructionPl === null ? "Oryginał" : node.summaryPl || node.instructionPl);
+    const modelLabel = claudeModelLabel(node.claudeModel);
 
     return (
       <div key={node.id} style={{ marginLeft: depth > 0 ? 12 : 0 }}>
@@ -48,8 +64,11 @@ export default function HistoryTree({ project, onSelect, disabled }: Props) {
             loading="lazy"
           />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-[#1A1A1A]">{label}</p>
-            <p className="text-xs text-[#8a887f]">
+            <p className="truncate text-sm font-medium text-[#1A1A1A]">
+              {node.testLabel && <span className="mr-1">🧪</span>}
+              {label}
+            </p>
+            <p className="truncate text-xs text-[#8a887f]">
               {new Date(node.createdAt).toLocaleTimeString("pl-PL", {
                 hour: "2-digit",
                 minute: "2-digit",
@@ -58,6 +77,7 @@ export default function HistoryTree({ project, onSelect, disabled }: Props) {
                 <> · ${node.costUsd.toFixed(3)}</>
               )}
               {node.provider && <> · {node.provider === "flux" ? "FLUX" : "Nano Banana"}</>}
+              {modelLabel && <> · {modelLabel}</>}
               {isCurrent && <span className="font-medium text-[#b9a646]"> · aktualna</span>}
             </p>
           </div>

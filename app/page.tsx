@@ -64,6 +64,35 @@ const CLAUDE_MODELS: Array<{ value: string; label: string }> = [
   { value: "claude-sonnet-5", label: "Claude Sonnet 5 — najszybszy" },
 ];
 
+/**
+ * Fixed benchmark suite: 6 generic, image-agnostic edits covering the core
+ * playbook categories (removal, material, color, lighting, adding, style).
+ * Run on "standard" quality to keep a full pass cheap (~$0.25-0.30). Every
+ * run branches off the SAME current node so results are directly
+ * comparable, and each node records which Claude model produced it.
+ */
+const TEST_SUITE: Array<{ label: string; instruction: string }> = [
+  {
+    label: "🧪 Usuwanie bałaganu",
+    instruction:
+      "Usuń z widoku wszelkie kable, przewody i drobny bałagan (np. przedmioty leżące na blacie lub podłodze). Jeśli nic takiego nie ma, zostaw obraz bez zmian.",
+  },
+  { label: "🧪 Podłoga → jasny dąb", instruction: "Zmień podłogę na jasny dąb w macie." },
+  { label: "🧪 Ściany na biało", instruction: "Pomaluj ściany na ciepłą biel." },
+  {
+    label: "🧪 Złota godzina",
+    instruction: "Zmień porę dnia na złotą godzinę, ciepłe wieczorne światło.",
+  },
+  {
+    label: "🧪 Dodaj roślinę",
+    instruction: "Dodaj niewielką roślinę doniczkową w wolnym rogu pomieszczenia.",
+  },
+  {
+    label: "🧪 Styl minimalistyczny",
+    instruction: "Nadaj wnętrzu bardziej minimalistyczny styl, zachowując układ pomieszczenia.",
+  },
+];
+
 function sectionLabel(text: string, optional = false) {
   return (
     <div className="mb-2 flex items-baseline justify-between">
@@ -93,6 +122,11 @@ export default function Home() {
   const [dragOver, setDragOver] = useState(false);
   const [budgets, setBudgets] = useState<Budgets | null>(null);
   const [usageOpen, setUsageOpen] = useState(false);
+  const [testProgress, setTestProgress] = useState<{
+    index: number;
+    total: number;
+    label: string;
+  } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -306,6 +340,7 @@ export default function Home() {
             costImageUsd: data.costUsd.image,
             tokensIn: data.claudeTokens?.input,
             tokensOut: data.claudeTokens?.output,
+            claudeModel: data.claudeModel,
             createdAt: Date.now(),
           },
         ],
@@ -316,6 +351,79 @@ export default function Home() {
       setError(err instanceof Error ? err.message : "Edycja nie powiodła się");
     } finally {
       setBusy(null);
+    }
+  }
+
+  /**
+   * Fires the fixed TEST_SUITE against the current image, all branching off
+   * the same baseline node so runs stay comparable. Meant to be re-run after
+   * a playbook/model change to see whether known failure modes come back —
+   * rate results with 👍👎 and compare the "· <Model>" tag per node.
+   */
+  async function runTestSuite() {
+    if (!active || !current || busy || testProgress) return;
+    const projectId = active.id;
+    const baseNode = current;
+    setBusy("edit");
+    setError(null);
+    const failedLabels: string[] = [];
+
+    for (let i = 0; i < TEST_SUITE.length; i++) {
+      const testCase = TEST_SUITE[i];
+      setTestProgress({ index: i + 1, total: TEST_SUITE.length, label: testCase.label });
+      try {
+        const res = await fetch("/api/edit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            imageUrl: baseNode.imageUrl,
+            instruction: testCase.instruction,
+            provider: prefs.provider,
+            quality: "standard",
+            claudeModel: prefs.claudeModel,
+            historySummaries: chainSummaries(active, baseNode.id),
+          }),
+        });
+        const data: EditResponseBody & { error?: string } = await res.json();
+        if (!res.ok) throw new Error(data.error ?? `Błąd ${res.status}`);
+
+        const newNodeId = crypto.randomUUID();
+        updateProject(projectId, (p) => ({
+          ...p,
+          nodes: [
+            ...p.nodes,
+            {
+              id: newNodeId,
+              parentId: baseNode.id,
+              imageUrl: data.imageUrl,
+              instructionPl: testCase.instruction,
+              testLabel: testCase.label,
+              promptEn: data.promptEn,
+              summaryPl: data.summaryPl,
+              provider: data.provider,
+              quality: data.quality,
+              costUsd: data.costUsd.total,
+              costClaudeUsd: data.costUsd.claude,
+              costImageUsd: data.costUsd.image,
+              tokensIn: data.claudeTokens?.input,
+              tokensOut: data.claudeTokens?.output,
+              claudeModel: data.claudeModel,
+              createdAt: Date.now(),
+            },
+          ],
+        }));
+      } catch (err) {
+        failedLabels.push(testCase.label);
+        console.error(`Test suite: "${testCase.label}" failed:`, err);
+      }
+    }
+
+    setTestProgress(null);
+    setBusy(null);
+    if (failedLabels.length > 0) {
+      setError(
+        `${failedLabels.length}/${TEST_SUITE.length} testów nie powiodło się: ${failedLabels.join(", ")}. Pozostałe wyniki są w historii.`,
+      );
     }
   }
 
@@ -651,10 +759,21 @@ export default function Home() {
               <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-white/70 backdrop-blur-sm">
                 <div className="text-center">
                   <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-[#b9a646] border-t-transparent" />
-                  <p className="text-sm font-medium text-[#1A1A1A]">Generowanie edycji…</p>
-                  <p className="text-xs text-[#8a887f]">
-                    Claude tłumaczy polecenie, potem model graficzny pracuje
-                  </p>
+                  {testProgress ? (
+                    <>
+                      <p className="text-sm font-medium text-[#1A1A1A]">
+                        Test {testProgress.index}/{testProgress.total}: {testProgress.label}
+                      </p>
+                      <p className="text-xs text-[#8a887f]">Wyniki pojawiają się w historii na bieżąco</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm font-medium text-[#1A1A1A]">Generowanie edycji…</p>
+                      <p className="text-xs text-[#8a887f]">
+                        Claude tłumaczy polecenie, potem model graficzny pracuje
+                      </p>
+                    </>
+                  )}
                 </div>
               </div>
             )}
@@ -939,6 +1058,32 @@ export default function Home() {
                     ))}
                   </select>
                 </label>
+              </div>
+            </details>
+
+            {/* Zestaw testowy */}
+            <details className="rounded-xl border border-[#e8e6df] p-3">
+              <summary className="cursor-pointer select-none text-sm font-bold text-[#1A1A1A]">
+                🧪 Zestaw testowy
+              </summary>
+              <div className="mt-2 flex flex-col gap-2">
+                <p className="text-xs text-[#8a887f]">
+                  Odpala {TEST_SUITE.length} stałych edycji (usuwanie, materiał, kolor,
+                  światło, dodawanie, styl) na jakości „Szybka" — ok. $0.25–0.30 za cały
+                  przebieg. Wyniki lądują jako gałęzie w historii, oznaczone modelem
+                  Claude, którego użyto. Uruchom ponownie po zmianie playbooka albo
+                  modelu, żeby porównać.
+                </p>
+                <button
+                  type="button"
+                  disabled={busy !== null || !current}
+                  onClick={runTestSuite}
+                  className="rounded-xl border border-[#dcd9d1] py-2 text-sm font-semibold text-[#50344f] transition-colors hover:border-[#b9a646] disabled:opacity-40"
+                >
+                  {testProgress
+                    ? `Test ${testProgress.index}/${testProgress.total}…`
+                    : `▶ Uruchom test (${TEST_SUITE.length} edycji)`}
+                </button>
               </div>
             </details>
 

@@ -131,6 +131,7 @@ export async function POST(request: NextRequest) {
         total: translation.costUsd + imageCost,
       },
       claudeTokens: translation.tokens,
+      claudeModel: translation.model,
     };
     return NextResponse.json(response);
   } catch (err) {

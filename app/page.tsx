@@ -6,6 +6,7 @@ import type {
   CameraAngle,
   EditArea,
   EditResponseBody,
+  HistoryNode,
   Project,
   ProjectsDocument,
   ProviderName,
@@ -93,6 +94,62 @@ const TEST_SUITE: Array<{ label: string; instruction: string }> = [
   },
 ];
 
+interface SubmitEditParams {
+  imageUrl: string;
+  instruction: string;
+  claudeModel: string;
+  quality: Quality;
+  provider: ProviderName;
+  cameraAngle?: CameraAngle | null;
+  areas?: EditArea[];
+  maskUrl?: string;
+  referenceObjects?: ReferenceObject[];
+  historySummaries: string[];
+}
+
+/**
+ * Shared POST /api/edit call, used by the single-edit, test-suite and
+ * model-comparison flows alike so the request shape can't drift between
+ * them (a past bug was fixed in only one of two duplicated call sites).
+ */
+async function submitEdit(params: SubmitEditParams): Promise<EditResponseBody> {
+  const res = await fetch("/api/edit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  const data: EditResponseBody & { error?: string } = await res.json();
+  if (!res.ok) throw new Error(data.error ?? `Błąd ${res.status}`);
+  return data;
+}
+
+/** Turns an /api/edit response into a new history node. */
+function buildHistoryNode(opts: {
+  parentId: string;
+  data: EditResponseBody;
+  instructionPl: string;
+  testLabel?: string;
+}): HistoryNode {
+  return {
+    id: crypto.randomUUID(),
+    parentId: opts.parentId,
+    imageUrl: opts.data.imageUrl,
+    instructionPl: opts.instructionPl,
+    testLabel: opts.testLabel,
+    promptEn: opts.data.promptEn,
+    summaryPl: opts.data.summaryPl,
+    provider: opts.data.provider,
+    quality: opts.data.quality,
+    costUsd: opts.data.costUsd.total,
+    costClaudeUsd: opts.data.costUsd.claude,
+    costImageUsd: opts.data.costUsd.image,
+    tokensIn: opts.data.claudeTokens?.input,
+    tokensOut: opts.data.claudeTokens?.output,
+    claudeModel: opts.data.claudeModel,
+    createdAt: Date.now(),
+  };
+}
+
 function sectionLabel(text: string, optional = false) {
   return (
     <div className="mb-2 flex items-baseline justify-between">
@@ -123,6 +180,14 @@ export default function Home() {
   const [budgets, setBudgets] = useState<Budgets | null>(null);
   const [usageOpen, setUsageOpen] = useState(false);
   const [testProgress, setTestProgress] = useState<{
+    index: number;
+    total: number;
+    label: string;
+  } | null>(null);
+  const [compareModels, setCompareModels] = useState<string[]>(
+    CLAUDE_MODELS.map((m) => m.value),
+  );
+  const [compareProgress, setCompareProgress] = useState<{
     index: number;
     total: number;
     label: string;
@@ -296,55 +361,34 @@ export default function Home() {
         maskUrl = await uploadBlob(maskBlob, "mask.png");
       }
 
-      const res = await fetch("/api/edit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          imageUrl: current.imageUrl,
-          instruction: instruction.trim(),
-          provider: prefs.provider,
-          quality: prefs.quality,
-          claudeModel: prefs.claudeModel,
-          cameraAngle,
-          areas,
-          maskUrl,
-          referenceObjects,
-          historySummaries: chainSummaries(active, current.id),
-        }),
+      const data = await submitEdit({
+        imageUrl: current.imageUrl,
+        instruction: instruction.trim(),
+        provider: prefs.provider,
+        quality: prefs.quality,
+        claudeModel: prefs.claudeModel,
+        cameraAngle,
+        areas,
+        maskUrl,
+        referenceObjects,
+        historySummaries: chainSummaries(active, current.id),
       });
-      const data: EditResponseBody & { error?: string } = await res.json();
-      if (!res.ok) throw new Error(data.error ?? `Błąd ${res.status}`);
 
-      const newNodeId = crypto.randomUUID();
+      const node = buildHistoryNode({
+        parentId,
+        data,
+        instructionPl:
+          instruction.trim() ||
+          areas
+            .map((a) => a.description.trim())
+            .filter(Boolean)
+            .join("; ") ||
+          "Zmiana kadru",
+      });
       updateProject(projectId, (p) => ({
         ...p,
-        nodes: [
-          ...p.nodes,
-          {
-            id: newNodeId,
-            parentId,
-            imageUrl: data.imageUrl,
-            instructionPl:
-              instruction.trim() ||
-              areas
-                .map((a) => a.description.trim())
-                .filter(Boolean)
-                .join("; ") ||
-              "Zmiana kadru",
-            promptEn: data.promptEn,
-            summaryPl: data.summaryPl,
-            provider: data.provider,
-            quality: data.quality,
-            costUsd: data.costUsd.total,
-            costClaudeUsd: data.costUsd.claude,
-            costImageUsd: data.costUsd.image,
-            tokensIn: data.claudeTokens?.input,
-            tokensOut: data.claudeTokens?.output,
-            claudeModel: data.claudeModel,
-            createdAt: Date.now(),
-          },
-        ],
-        currentNodeId: newNodeId,
+        nodes: [...p.nodes, node],
+        currentNodeId: node.id,
       }));
       setInstruction("");
     } catch (err) {
@@ -372,46 +416,21 @@ export default function Home() {
       const testCase = TEST_SUITE[i];
       setTestProgress({ index: i + 1, total: TEST_SUITE.length, label: testCase.label });
       try {
-        const res = await fetch("/api/edit", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            imageUrl: baseNode.imageUrl,
-            instruction: testCase.instruction,
-            provider: prefs.provider,
-            quality: "standard",
-            claudeModel: prefs.claudeModel,
-            historySummaries: chainSummaries(active, baseNode.id),
-          }),
+        const data = await submitEdit({
+          imageUrl: baseNode.imageUrl,
+          instruction: testCase.instruction,
+          provider: prefs.provider,
+          quality: "standard",
+          claudeModel: prefs.claudeModel,
+          historySummaries: chainSummaries(active, baseNode.id),
         });
-        const data: EditResponseBody & { error?: string } = await res.json();
-        if (!res.ok) throw new Error(data.error ?? `Błąd ${res.status}`);
-
-        const newNodeId = crypto.randomUUID();
-        updateProject(projectId, (p) => ({
-          ...p,
-          nodes: [
-            ...p.nodes,
-            {
-              id: newNodeId,
-              parentId: baseNode.id,
-              imageUrl: data.imageUrl,
-              instructionPl: testCase.instruction,
-              testLabel: testCase.label,
-              promptEn: data.promptEn,
-              summaryPl: data.summaryPl,
-              provider: data.provider,
-              quality: data.quality,
-              costUsd: data.costUsd.total,
-              costClaudeUsd: data.costUsd.claude,
-              costImageUsd: data.costUsd.image,
-              tokensIn: data.claudeTokens?.input,
-              tokensOut: data.claudeTokens?.output,
-              claudeModel: data.claudeModel,
-              createdAt: Date.now(),
-            },
-          ],
-        }));
+        const node = buildHistoryNode({
+          parentId: baseNode.id,
+          data,
+          instructionPl: testCase.instruction,
+          testLabel: testCase.label,
+        });
+        updateProject(projectId, (p) => ({ ...p, nodes: [...p.nodes, node] }));
       } catch (err) {
         failedLabels.push(testCase.label);
         console.error(`Test suite: "${testCase.label}" failed:`, err);
@@ -423,6 +442,81 @@ export default function Home() {
     if (failedLabels.length > 0) {
       setError(
         `${failedLabels.length}/${TEST_SUITE.length} testów nie powiodło się: ${failedLabels.join(", ")}. Pozostałe wyniki są w historii.`,
+      );
+    }
+  }
+
+  function toggleCompareModel(value: string) {
+    setCompareModels((prev) =>
+      prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value],
+    );
+  }
+
+  /**
+   * Runs the CURRENT instruction (+ areas/refs/camera) once per selected
+   * Claude model, all branching off the current node so results sit side by
+   * side in the history tree — the requested "porównaj na kilku modelach
+   * naraz" feature. The mask (if any) is model-independent, so it's built
+   * once and reused across variants rather than rebuilt per model.
+   */
+  async function runModelComparison() {
+    if (!canSubmit || !active || !current || busy || compareModels.length < 2) return;
+    setBusy("edit");
+    setError(null);
+    setDrawMode(false);
+    const projectId = active.id;
+    const parentId = current.id;
+    const instructionText =
+      instruction.trim() ||
+      areas
+        .map((a) => a.description.trim())
+        .filter(Boolean)
+        .join("; ") ||
+      "Zmiana kadru";
+    const failedLabels: string[] = [];
+
+    try {
+      let maskUrl: string | undefined;
+      if (prefs.provider === "flux" && areas.length > 0) {
+        const maskBlob = await buildMaskBlob(current.imageUrl, areas);
+        maskUrl = await uploadBlob(maskBlob, "mask.png");
+      }
+
+      for (let i = 0; i < compareModels.length; i++) {
+        const model = compareModels[i];
+        const modelLabel = CLAUDE_MODELS.find((m) => m.value === model)?.label ?? model;
+        setCompareProgress({ index: i + 1, total: compareModels.length, label: modelLabel });
+        try {
+          const data = await submitEdit({
+            imageUrl: current.imageUrl,
+            instruction: instruction.trim(),
+            provider: prefs.provider,
+            quality: prefs.quality,
+            claudeModel: model,
+            cameraAngle,
+            areas,
+            maskUrl,
+            referenceObjects,
+            historySummaries: chainSummaries(active, current.id),
+          });
+          const node = buildHistoryNode({ parentId, data, instructionPl: instructionText });
+          updateProject(projectId, (p) => ({ ...p, nodes: [...p.nodes, node] }));
+        } catch (err) {
+          failedLabels.push(modelLabel);
+          console.error(`Porównanie modeli: "${modelLabel}" nie powiodło się:`, err);
+        }
+      }
+      setInstruction("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Porównanie nie powiodło się");
+    } finally {
+      setCompareProgress(null);
+      setBusy(null);
+    }
+
+    if (failedLabels.length > 0) {
+      setError(
+        `${failedLabels.length}/${compareModels.length} wariantów nie powiodło się: ${failedLabels.join(", ")}.`,
       );
     }
   }
@@ -466,6 +560,14 @@ export default function Home() {
     if (prefs.provider === "gemini") return "≈$0.14";
     if (areas.length > 0) return "≈$0.05";
     return q === "high" ? "≈$0.08" : "≈$0.04";
+  };
+
+  // Rough per-variant estimate for the model-comparison button: image cost
+  // (as above) plus a ballpark Claude translation cost (~$0.005-0.03 depending
+  // on model/effort — not worth per-model precision for a pre-run estimate).
+  const compareCostEstimate = (): number => {
+    const perImage = prefs.provider === "gemini" ? 0.14 : areas.length > 0 ? 0.05 : 0.04;
+    return (perImage + 0.015) * compareModels.length;
   };
 
   if (!loaded) {
@@ -766,6 +868,14 @@ export default function Home() {
                       </p>
                       <p className="text-xs text-[#8a887f]">Wyniki pojawiają się w historii na bieżąco</p>
                     </>
+                  ) : compareProgress ? (
+                    <>
+                      <p className="text-sm font-medium text-[#1A1A1A]">
+                        Wariant {compareProgress.index}/{compareProgress.total}:{" "}
+                        {compareProgress.label}
+                      </p>
+                      <p className="text-xs text-[#8a887f]">Wyniki pojawiają się w historii na bieżąco</p>
+                    </>
                   ) : (
                     <>
                       <p className="text-sm font-medium text-[#1A1A1A]">Generowanie edycji…</p>
@@ -1058,6 +1168,50 @@ export default function Home() {
                     ))}
                   </select>
                 </label>
+              </div>
+            </details>
+
+            {/* Porównanie modeli na TYM poleceniu */}
+            <details className="rounded-xl border border-[#e8e6df] p-3">
+              <summary className="cursor-pointer select-none text-sm font-bold text-[#1A1A1A]">
+                🔀 Porównaj modele
+              </summary>
+              <div className="mt-2 flex flex-col gap-2">
+                <p className="text-xs text-[#8a887f]">
+                  Wykona TO polecenie (z zaznaczeniami, referencjami i kątem kamery)
+                  równolegle na zaznaczonych modelach Claude — każdy wynik trafia jako
+                  osobna gałąź w historii, oznaczona modelem. Koszt mnoży się razy
+                  liczba wybranych modeli.
+                </p>
+                <div className="flex flex-col gap-1.5">
+                  {CLAUDE_MODELS.map((m) => (
+                    <label
+                      key={m.value}
+                      className="flex items-center gap-2 text-sm text-[#1A1A1A]"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={compareModels.includes(m.value)}
+                        onChange={() => toggleCompareModel(m.value)}
+                        disabled={busy !== null}
+                        className="h-4 w-4 accent-[#50344f]"
+                      />
+                      {m.label}
+                    </label>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  disabled={busy !== null || !canSubmit || compareModels.length < 2}
+                  onClick={runModelComparison}
+                  className="rounded-xl border border-[#dcd9d1] py-2 text-sm font-semibold text-[#50344f] transition-colors hover:border-[#b9a646] disabled:opacity-40"
+                >
+                  {compareProgress
+                    ? `Wariant ${compareProgress.index}/${compareProgress.total}: ${compareProgress.label}…`
+                    : compareModels.length < 2
+                      ? "Zaznacz min. 2 modele"
+                      : `🔀 Porównaj (${compareModels.length} warianty, ≈$${compareCostEstimate().toFixed(2)})`}
+                </button>
               </div>
             </details>
 

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { APP_VERSION } from "@/lib/version";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -34,6 +35,12 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-[#F4F4F2] text-[#1A1A1A]">
         {children}
+        <span
+          className="pointer-events-none fixed bottom-1.5 right-2 z-50 select-none text-[10px] font-medium tabular-nums text-[#a5a29a]/70"
+          title="Wersja aplikacji — rośnie o 1 z każdą poprawką. Jeśli po wdrożeniu widzisz nowy numer, nowa wersja jest już na stronie."
+        >
+          v{APP_VERSION}
+        </span>
       </body>
     </html>
   );

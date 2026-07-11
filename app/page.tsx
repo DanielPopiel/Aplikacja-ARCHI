@@ -441,20 +441,26 @@ export default function Home() {
       }),
     );
 
-    const failedLabels = results
-      .map((r, i) => (r.status === "rejected" ? TEST_SUITE[i].label : null))
-      .filter((x): x is string => x !== null);
-    results.forEach((r, i) => {
-      if (r.status === "rejected") {
-        console.error(`Test suite: "${TEST_SUITE[i].label}" failed:`, r.reason);
-      }
+    const failures = results
+      .map((r, i) =>
+        r.status === "rejected"
+          ? {
+              label: TEST_SUITE[i].label,
+              reason: r.reason instanceof Error ? r.reason.message : String(r.reason),
+            }
+          : null,
+      )
+      .filter((x): x is { label: string; reason: string } => x !== null);
+    failures.forEach((f) => {
+      console.error(`Test suite: "${f.label}" failed:`, f.reason);
     });
 
     setTestProgress(null);
     setBusy(null);
-    if (failedLabels.length > 0) {
+    if (failures.length > 0) {
+      const reasons = [...new Set(failures.map((f) => f.reason))];
       setError(
-        `${failedLabels.length}/${TEST_SUITE.length} testów nie powiodło się: ${failedLabels.join(", ")}. Pozostałe wyniki są w historii.`,
+        `${failures.length}/${TEST_SUITE.length} testów nie powiodło się. Powód: ${reasons.join(" | ")}. Pozostałe wyniki są w historii.`,
       );
     }
   }
@@ -529,22 +535,28 @@ export default function Home() {
         }),
       );
 
-      const failedLabels = results
+      const failures = results
         .map((r, i) =>
           r.status === "rejected"
-            ? (CLAUDE_MODELS.find((m) => m.value === compareModels[i])?.label ?? compareModels[i])
+            ? {
+                label: CLAUDE_MODELS.find((m) => m.value === compareModels[i])?.label ?? compareModels[i],
+                reason: r.reason instanceof Error ? r.reason.message : String(r.reason),
+              }
             : null,
         )
-        .filter((x): x is string => x !== null);
-      results.forEach((r, i) => {
-        if (r.status === "rejected") {
-          console.error(`Porównanie modeli: "${compareModels[i]}" nie powiodło się:`, r.reason);
-        }
+        .filter((x): x is { label: string; reason: string } => x !== null);
+      failures.forEach((f) => {
+        console.error(`Porównanie modeli: "${f.label}" nie powiodło się:`, f.reason);
       });
 
       setInstruction("");
-      if (failedLabels.length > 0) {
-        setError(`${failedLabels.length}/${total} wariantów nie powiodło się: ${failedLabels.join(", ")}.`);
+      if (failures.length > 0) {
+        // Surface the ACTUAL server reason(s), not just model names — a bare
+        // "N/M failed" hides whether it's our bug, a refusal, or out-of-credits.
+        const reasons = [...new Set(failures.map((f) => f.reason))];
+        setError(
+          `${failures.length}/${total} wariantów nie powiodło się. Powód: ${reasons.join(" | ")}`,
+        );
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Porównanie nie powiodło się");

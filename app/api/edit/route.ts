@@ -120,14 +120,23 @@ export async function POST(request: NextRequest) {
       // it. Enforce that guarantee ourselves so unrelated background
       // objects/text can never mutate outside the marked area.
       if (useMask && maskUrl) {
-        finalBuffer = await compositeOutsideMask({
-          editedBuffer: finalBuffer,
-          originalUrl: imageUrl,
-          maskUrl,
-          width: inputDims.width,
-          height: inputDims.height,
-        });
-        finalMime = "image/jpeg";
+        // The composite is a best-effort guarantee, not load-bearing for
+        // producing a result: if it throws (bad mask fetch, sharp/memory
+        // issue, etc.) fall back to the raw model output rather than
+        // failing the whole edit — a slightly-less-guaranteed image beats
+        // no image at all.
+        try {
+          finalBuffer = await compositeOutsideMask({
+            editedBuffer: finalBuffer,
+            originalUrl: imageUrl,
+            maskUrl,
+            width: inputDims.width,
+            height: inputDims.height,
+          });
+          finalMime = "image/jpeg";
+        } catch (compositeErr) {
+          console.error("compositeOutsideMask failed, using raw result:", compositeErr);
+        }
       }
     } else if (result.imageBase64) {
       finalBuffer = Buffer.from(result.imageBase64, "base64");

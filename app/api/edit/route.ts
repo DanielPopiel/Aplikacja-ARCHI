@@ -5,6 +5,7 @@ import { getProvider } from "@/lib/providers";
 import { persistImage } from "@/lib/storage";
 import { fetchImageBytes } from "@/lib/image-utils";
 import { normalizeToInputSize, readImageDims } from "@/lib/upscale";
+import { compositeOutsideMask } from "@/lib/mask-composite";
 
 // Claude + image generation can take a while; allow the max on Vercel hobby.
 export const maxDuration = 300;
@@ -113,6 +114,21 @@ export async function POST(request: NextRequest) {
       finalBuffer = normalized.buffer;
       finalMime = normalized.mimeType;
       upscaleCost = normalized.extraCostUsd;
+
+      // Inpainting models regenerate the whole canvas — they only
+      // approximate "outside the mask stays the same," they don't guarantee
+      // it. Enforce that guarantee ourselves so unrelated background
+      // objects/text can never mutate outside the marked area.
+      if (useMask && maskUrl) {
+        finalBuffer = await compositeOutsideMask({
+          editedBuffer: finalBuffer,
+          originalUrl: imageUrl,
+          maskUrl,
+          width: inputDims.width,
+          height: inputDims.height,
+        });
+        finalMime = "image/jpeg";
+      }
     } else if (result.imageBase64) {
       finalBuffer = Buffer.from(result.imageBase64, "base64");
     } else {

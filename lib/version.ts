@@ -10,4 +10,4 @@
  *
  * History: started at 19 on 2026-07-11 (= 18 prior commits + this feature).
  */
-export const APP_VERSION = 20;
+export const APP_VERSION = 21;

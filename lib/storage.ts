@@ -14,7 +14,15 @@ function extFor(mimeType: string): string {
  */
 export async function persistImage(buffer: Buffer, mimeType: string): Promise<string> {
   if (process.env.BLOB_READ_WRITE_TOKEN) {
-    const blob = await put(`archi/${crypto.randomUUID()}.${extFor(mimeType)}`, buffer, {
+    // Copy into a guaranteed non-shared Buffer before handing it to
+    // @vercel/blob (which uploads via undici's fetch). sharp's `.toBuffer()`
+    // can, on some runtimes (observed on Vercel/Linux, not on Windows dev),
+    // return a Buffer backed by a SharedArrayBuffer — and Node's web APIs
+    // reject those with "ArrayBuffer: SharedArrayBuffer is not allowed",
+    // which surfaced as a total edit failure. Buffer.from(buffer) copies the
+    // bytes into a normal ArrayBuffer, matching the known-good upload path.
+    const safe = Buffer.from(buffer);
+    const blob = await put(`archi/${crypto.randomUUID()}.${extFor(mimeType)}`, safe, {
       access: "public",
       contentType: mimeType,
     });

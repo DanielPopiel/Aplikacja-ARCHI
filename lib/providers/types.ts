@@ -11,6 +11,12 @@ export interface GenerateEditParams {
   maskUrl?: string;
   /** Images of objects/materials to use in the edit (multi-image input). */
   referenceImageUrls?: string[];
+  /**
+   * Claude's classification of the edit. Masked removals are routed to a
+   * dedicated prompt-less eraser model (reconstructs background only, can't
+   * "draw the object back"), everything else goes to generative inpainting.
+   */
+  editType?: "removal" | "other";
 }
 
 export interface GenerateEditResult {

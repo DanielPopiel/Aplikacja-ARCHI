@@ -7,12 +7,14 @@ const MODEL_STANDARD = process.env.FAL_MODEL_STANDARD ?? "fal-ai/flux-pro/kontex
 const MODEL_HIGH = process.env.FAL_MODEL_HIGH ?? process.env.FAL_MODEL ?? "fal-ai/flux-pro/kontext/max";
 const MODEL_FILL = process.env.FAL_MODEL_FILL ?? "fal-ai/flux-pro/v1/fill";
 const MODEL_MULTI = process.env.FAL_MODEL_MULTI ?? "fal-ai/flux-pro/kontext/max/multi";
+const MODEL_ERASER = process.env.FAL_MODEL_ERASER ?? "fal-ai/bria/eraser";
 
 // Per-image costs shown in the cost counter (USD).
 const COST_STANDARD = Number(process.env.FLUX_STANDARD_COST_USD ?? "0.04");
 const COST_HIGH = Number(process.env.FLUX_COST_USD ?? "0.08");
 const COST_FILL = Number(process.env.FLUX_FILL_COST_USD ?? "0.05");
 const COST_MULTI = Number(process.env.FLUX_MULTI_COST_USD ?? "0.08");
+const COST_ERASER = Number(process.env.BRIA_ERASER_COST_USD ?? "0.04");
 
 interface FalImage {
   url: string;
@@ -82,7 +84,9 @@ async function closestAspectRatio(imageUrl: string): Promise<string | undefined>
 /**
  * FLUX via fal.ai:
  * - edits without mask → FLUX.1 Kontext (pro for drafts, max for final quality),
- * - edits with a marked area → FLUX.1 Fill (true inpainting: only the mask changes),
+ * - pure removals with a marked area → Bria Eraser (prompt-less background
+ *   reconstruction — can't redraw the object or typeset prompt words),
+ * - other edits with a marked area → FLUX.1 Fill (true inpainting),
  * - edits with reference objects → Kontext Max Multi (main image + references).
  */
 export const fluxKontextProvider: ImageEditProvider = {
@@ -95,6 +99,7 @@ export const fluxKontextProvider: ImageEditProvider = {
     quality,
     maskUrl,
     referenceImageUrls,
+    editType,
   }: GenerateEditParams): Promise<GenerateEditResult> {
     if (referenceImageUrls && referenceImageUrls.length > 0) {
       // Multi-image editing: the main scene first, then the reference objects.
@@ -115,6 +120,25 @@ export const fluxKontextProvider: ImageEditProvider = {
     }
 
     if (maskUrl) {
+      // Pure removals go to a dedicated eraser: it takes NO prompt and only
+      // reconstructs background inside the mask, so it cannot "draw the
+      // removed object back" or typeset prompt words — both confirmed FLUX
+      // Fill failure modes. Fill remains a generative inpainter and wants to
+      // draw *something* in the mask, which is wrong for removal.
+      if (editType === "removal") {
+        const image = await callFal(MODEL_ERASER, {
+          image_url: imageUrl,
+          mask_url: maskUrl,
+          mask_type: "manual",
+        });
+        return {
+          imageUrl: image.url,
+          mimeType: image.content_type ?? "image/jpeg",
+          costUsd: COST_ERASER,
+          model: MODEL_ERASER,
+        };
+      }
+
       // Fill works directly on the given image + mask, so it already
       // preserves the input's own dimensions — no aspect_ratio needed.
       const image = await callFal(MODEL_FILL, {

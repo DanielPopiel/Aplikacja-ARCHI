@@ -85,6 +85,11 @@ Inpainting mode (when indicated in the request):
   * ALWAYS end the prompt with a POSITIVE, negation-free closer describing a clean finished surface, e.g.: "Photorealistic and seamless, blending naturally into the surrounding wall and floor, consistent with the room's existing lighting; a smooth, clean, unbroken surface." Never append a list of forbidden things ("no text", "no labels", "no lines") — per the general negation rule, that list is what gets typeset onto the image.
 - CRITICAL — removals (a direct consequence of the general negation rule): when the user wants to REMOVE an object, the prompt must NOT name, describe or allude to that object in ANY way — not "remove X", not "without X", not "where the X was". The model draws whatever the prompt mentions, so naming the object (even to erase it) brings it back. Describe purely the empty background/surface that should fill the area as if the object never existed, e.g. "a continuous wall of vertical white fluted panels with soft, even ambient lighting". Also do not mention light effects the removed object used to cast (glow, reflections, shadows).
 
+Rules for the "editType" field:
+- "removal" ONLY when the requested edit purely REMOVES object(s) — nothing new appears in their place (the area becomes plain background/surface). Examples: "usuń drzwi", "usuń lustro i kable".
+- "other" for everything else, including replacements ("wymień listwę na..."), additions, material/color/lighting/style/camera changes, and MIXED requests that remove one thing but also add or change another.
+- Why it matters: masked removals are executed by a dedicated eraser model that takes NO prompt at all and only reconstructs background — it physically cannot draw the removed object back. Your "prompt" field is still required (it is used when no mask is present, and as a fallback), so for removals still follow the removal rules above.
+
 Rules for the "summary" field:
 - One short sentence in Polish, past tense, describing what was changed in this iteration (shown in the app's history), e.g. "Zmieniono podłogę na jasny dąb i rozjaśniono wnętrze."`;
 
@@ -99,8 +104,14 @@ const OUTPUT_SCHEMA = {
       type: "string",
       description: "One-sentence Polish summary of the change",
     },
+    editType: {
+      type: "string",
+      enum: ["removal", "other"],
+      description:
+        "\"removal\" ONLY when the edit purely removes object(s) with nothing new added in their place; any replacement, addition or change is \"other\"",
+    },
   },
-  required: ["prompt", "summary"],
+  required: ["prompt", "summary", "editType"],
   additionalProperties: false,
 } as const;
 
@@ -122,6 +133,8 @@ export interface TranslateParams {
 export interface TranslationResult {
   promptEn: string;
   summaryPl: string;
+  /** Claude's classification — routes masked removals to a dedicated eraser. */
+  editType: "removal" | "other";
   costUsd: number;
   model: string;
   tokens: { input: number; output: number };
@@ -268,7 +281,7 @@ export async function translateInstruction(params: TranslateParams): Promise<Tra
     throw new Error("Claude nie zwrócił treści tekstowej.");
   }
 
-  let parsed: { prompt: string; summary: string };
+  let parsed: { prompt: string; summary: string; editType?: string };
   try {
     parsed = JSON.parse(textBlock.text);
   } catch {
@@ -284,6 +297,9 @@ export async function translateInstruction(params: TranslateParams): Promise<Tra
   return {
     promptEn: parsed.prompt,
     summaryPl: parsed.summary,
+    // Default to "other" (generative inpainting) if the field ever comes
+    // back missing/unexpected — wrongly erasing is worse than wrongly filling.
+    editType: parsed.editType === "removal" ? "removal" : "other",
     costUsd,
     model: response.model,
     tokens: { input: usage.input_tokens, output: usage.output_tokens },

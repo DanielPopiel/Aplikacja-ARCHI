@@ -89,6 +89,7 @@ export async function POST(request: NextRequest) {
       quality,
       maskUrl: useMask ? maskUrl : undefined,
       referenceImageUrls: useMask ? undefined : refs.map((r) => r.imageUrl),
+      editType: translation.editType,
     });
 
     // 3. Always match the output 1:1 to the edited image's pixel dimensions,

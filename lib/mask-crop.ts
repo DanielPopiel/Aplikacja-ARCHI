@@ -3,6 +3,7 @@ import type { EditArea } from "./types";
 import type { ImageDims } from "./upscale";
 import { fetchImageBytes } from "./image-utils";
 import { persistImage } from "./storage";
+import { ASPECT_RATIOS } from "./providers/flux-kontext";
 
 /**
  * Crop-and-inpaint: FLUX Fill degrades badly when the mask is a small or
@@ -28,7 +29,7 @@ const CONTEXT_PAD = 0.08;
 /** The crop covers at least this fraction of each dimension. */
 const MIN_FRAC = 0.45;
 /** Above this share of the full image, cropping isn't worth the extra work. */
-const MAX_CROP_AREA = 0.7;
+const MAX_CROP_AREA = 0.8;
 
 function expandRange(lo: number, hi: number, minLen: number): [number, number] {
   if (hi - lo >= minLen) return [lo, hi];
@@ -59,8 +60,27 @@ export function computeCropRect(areas: EditArea[], dims: ImageDims): CropRect | 
   const y1 = Math.min(1, Math.max(...areas.map((a) => a.y + a.h)) + CONTEXT_PAD);
   if (x1 <= x0 || y1 <= y0) return null;
 
-  const [ex0, ex1] = expandRange(x0, x1, MIN_FRAC);
-  const [ey0, ey1] = expandRange(y0, y1, MIN_FRAC);
+  let [ex0, ex1] = expandRange(x0, x1, MIN_FRAC);
+  let [ey0, ey1] = expandRange(y0, y1, MIN_FRAC);
+
+  // Snap the crop to the closest FLUX aspect-ratio preset by GROWING one
+  // dimension (never shrinking — that could cut into the marked areas).
+  // Kontext renders onto a preset-shaped canvas; if the crop matches that
+  // shape exactly, the resize-back-and-paste is distortion-free.
+  const pxAspect = ((ex1 - ex0) * dims.width) / ((ey1 - ey0) * dims.height);
+  const preset = ASPECT_RATIOS.reduce((best, cur) =>
+    Math.abs(Math.log(cur.ratio / pxAspect)) < Math.abs(Math.log(best.ratio / pxAspect))
+      ? cur
+      : best,
+  );
+  if (preset.ratio > pxAspect) {
+    const targetW = Math.min(1, (preset.ratio * (ey1 - ey0) * dims.height) / dims.width);
+    [ex0, ex1] = expandRange(ex0, ex1, targetW);
+  } else if (preset.ratio < pxAspect) {
+    const targetH = Math.min(1, ((ex1 - ex0) * dims.width) / (preset.ratio * dims.height));
+    [ey0, ey1] = expandRange(ey0, ey1, targetH);
+  }
+
   if ((ex1 - ex0) * (ey1 - ey0) >= MAX_CROP_AREA) return null;
 
   const left = Math.round(ex0 * dims.width);

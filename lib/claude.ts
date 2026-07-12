@@ -69,20 +69,22 @@ Reference objects (when provided):
 - After the main image you receive numbered reference images showing objects, furniture or materials/textures the user wants used in the edit.
 - CRITICAL — never let a reference photo's own camera angle, crop, zoom level, distance or background leak into the result. The MAIN image's framing, camera angle and composition are always authoritative and must be reproduced exactly (unless the user explicitly requested a camera/framing change) — reference photos contribute ONLY the identity (shape, material, color, finish) of the thing they show, nothing about how the scene is shot.
 - Case A — the image model WILL receive the reference photos too (no mask; see "Inpainting mode" below for when this is false): refer to them explicitly and unambiguously ("the floor lamp from the second image" — the main scene is the first image) and state exactly where and how to integrate each: position relative to existing elements, realistic scale, correct perspective, lighting and shadows consistent with the room. Still state explicitly that the main image's framing must not change.
-- Case B — inpainting/mask mode is active: the image model receives ONLY your text, not the reference photos. Do not refer to "the second image" — instead write out the reference object's full visual appearance yourself (exact shape/profile, material, color, finish, proportions) in enough self-contained detail that the object could be recreated from your description alone, as if the model had never seen the reference.
+- Case B — marked-area mode is active (see below): the image model receives ONLY your text, not the reference photos. Do not refer to "the second image" — instead write out the reference object's full visual appearance yourself (exact shape/profile, material, color, finish, proportions) in enough self-contained detail that the object could be recreated from your description alone, as if the model had never seen the reference.
 
 Marked areas (when provided):
 - The user marked rectangular areas on the image. Coordinates are normalized 0..1 with origin at the top-left corner: x,y = top-left of the rectangle, w,h = its size. Look at the image and identify WHAT is inside each rectangle, then refer to it by its visual content and position in natural language (e.g. "the gallery of framed pictures on the center wall") — never by raw coordinates.
 - Each area may have its own description of the desired change; the global instruction (if any) applies too.
 - When the target model is Nano Banana (no mask support), use its semantic-masking phrasing: "Change only the [element] ... Keep everything else in the image exactly the same, preserving the original style, lighting and composition."
 
-Inpainting mode (when indicated in the request):
-- The edit will be executed by an inpainting model that regenerates ONLY the masked (marked) areas — the rest of the image is mechanically preserved, and (per "Reference objects" Case B above) the model never sees any reference photos, only your prompt.
-- Write the prompt as a description of the desired FINAL content of those areas, seamlessly consistent with the surrounding scene: match perspective, lighting, shadows, color palette and style of the rest of the room.
-- CRITICAL — the inpainting model typesets prompt words as literal text in the image. Confirmed failure: a prompt containing "integrated skirting board... 2700K LED" produced garbled labels and dimension lines painted across the wall. Therefore, in inpainting mode:
+Marked-area mode (when indicated in the request; the app previously called this "inpainting mode"):
+- The app mechanically restores every pixel OUTSIDE the marked areas after generation, so no matter what the model outputs, only the marked areas can end up changed. Focus the prompt entirely on the requested change.
+- Pure removals are executed by a dedicated eraser that takes no prompt at all. Everything else is executed by the instruction-following editing model, which will see a CROPPED portion of the photo centered on the marked areas plus surrounding context — not the full image, and (per "Reference objects" Case B above) never any reference photos.
+- Therefore write a NORMAL imperative editing instruction per the playbook above (replace/change/add), naming the target objects by their visual appearance and position. NEVER mention masks, crops, rectangles, "marked areas", "the marked strip" or coordinates — the executing model sees none of that; it just sees a photo of the region.
+- End with the standard preservation clause, scoped to what is plausibly visible near the target (neighboring doors/furniture, the wall, the floor, the lighting).
+- CRITICAL — this model can typeset stray prompt words as literal text in the image (confirmed: "integrated skirting board... 2700K LED" produced garbled labels and dimension lines). Therefore, in marked-area mode:
   * NO numerals, unit strings or codes of any kind — write "warm white glow" instead of "2700K", "a low skirting board" instead of dimensions in cm.
   * NO product-style or catalog naming, no quoted names, no technical jargon that reads like a spec sheet (avoid "integrated", "profile", "system", "model", "LED strip module" phrasing) — describe the thing purely visually, in flowing natural sentences ("a slim white baseboard with a soft band of warm light glowing from beneath its lower edge onto the floor").
-  * ALWAYS end the prompt with a POSITIVE, negation-free closer describing a clean finished surface, e.g.: "Photorealistic and seamless, blending naturally into the surrounding wall and floor, consistent with the room's existing lighting; a smooth, clean, unbroken surface." Never append a list of forbidden things ("no text", "no labels", "no lines") — per the general negation rule, that list is what gets typeset onto the image.
+  * ALWAYS end the prompt with a POSITIVE, negation-free closer, e.g.: "Photorealistic and seamless, consistent with the room's existing lighting." Never append a list of forbidden things ("no text", "no labels", "no lines") — per the general negation rule, that list is what gets typeset onto the image.
 - CRITICAL — removals (a direct consequence of the general negation rule): when the user wants to REMOVE an object, the prompt must NOT name, describe or allude to that object in ANY way — not "remove X", not "without X", not "where the X was". The model draws whatever the prompt mentions, so naming the object (even to erase it) brings it back. Describe purely the empty background/surface that should fill the area as if the object never existed, e.g. "a continuous wall of vertical white fluted panels with soft, even ambient lighting". Also do not mention light effects the removed object used to cast (glow, reflections, shadows).
 
 Rules for the "editType" field:
@@ -179,7 +181,7 @@ function buildUserText({
 
   if (provider) {
     const target = maskMode
-      ? "FLUX.1 Fill (inpainting z maską)"
+      ? "FLUX.1 Kontext na wykadrowanym fragmencie wokół zaznaczeń (piksele poza zaznaczeniami aplikacja przywraca mechanicznie)"
       : provider === "flux"
         ? "FLUX.1 Kontext"
         : "Nano Banana Pro (Gemini)";
@@ -202,7 +204,7 @@ function buildUserText({
     sections.push(`Zaznaczone obszary na obrazie:\n${list}`);
     sections.push(
       maskMode
-        ? "Tryb: INPAINTING — model wygeneruje od nowa wyłącznie zaznaczone obszary."
+        ? "Tryb: ZAZNACZONE OBSZARY (marked-area mode) — napisz zwykłą instrukcję edycji dla zawartości zaznaczeń; zmiany poza zaznaczeniami aplikacja i tak mechanicznie cofnie."
         : "Tryb: bez maski — w promptcie wyraźnie ogranicz zmiany do zawartości zaznaczonych obszarów i każ zachować całą resztę bez zmian.",
     );
   }

@@ -72,7 +72,7 @@ export async function callFal(model: string, input: Record<string, unknown>): Pr
   throw new Error(lastError);
 }
 
-const ASPECT_RATIOS: Array<{ value: string; ratio: number }> = [
+export const ASPECT_RATIOS: Array<{ value: string; ratio: number }> = [
   { value: "21:9", ratio: 21 / 9 },
   { value: "16:9", ratio: 16 / 9 },
   { value: "4:3", ratio: 4 / 3 },
@@ -103,7 +103,10 @@ async function closestAspectRatio(imageUrl: string): Promise<string | undefined>
  * - edits without mask → FLUX.1 Kontext (pro for drafts, max for final quality),
  * - pure removals with a marked area → Bria Eraser (prompt-less background
  *   reconstruction — can't redraw the object or typeset prompt words),
- * - other edits with a marked area → FLUX.1 Fill (true inpainting),
+ * - other edits with a marked area → also Kontext, run on the padded crop
+ *   the server prepared; the mask boundary is enforced afterwards by the
+ *   server-side pixel composite (FLUX Fill hallucinated props/badges inside
+ *   masks; kept only behind FAL_MASKED_MODE=fill),
  * - edits with reference objects → Kontext Max Multi (main image + references).
  */
 export const fluxKontextProvider: ImageEditProvider = {
@@ -156,21 +159,31 @@ export const fluxKontextProvider: ImageEditProvider = {
         };
       }
 
-      // Fill works directly on the given image + mask, so it already
-      // preserves the input's own dimensions — no aspect_ratio needed.
-      const image = await callFal(MODEL_FILL, {
-        prompt,
-        image_url: imageUrl,
-        mask_url: maskUrl,
-        output_format: "jpeg",
-        safety_tolerance: "2",
-      });
-      return {
-        imageUrl: image.url,
-        mimeType: image.content_type ?? "image/jpeg",
-        costUsd: COST_FILL,
-        model: MODEL_FILL,
-      };
+      // Other masked edits: FLUX Fill proved unusable — even with clean
+      // positive prompts and the crop trick it kept injecting staging props
+      // (vases, baskets) and fake badges INSIDE wide masks (genre prior:
+      // "empty floor along a wall wants decor"). Kontext is an instruction-
+      // following EDITOR, not a void-filler — it changes what the prompt
+      // names and leaves the rest alone. The mask boundary itself is
+      // enforced mechanically by the server-side outside-mask composite, so
+      // the generator doesn't need to see the mask at all. Fill stays
+      // available for comparison via FAL_MASKED_MODE=fill.
+      if (process.env.FAL_MASKED_MODE === "fill") {
+        const image = await callFal(MODEL_FILL, {
+          prompt,
+          image_url: imageUrl,
+          mask_url: maskUrl,
+          output_format: "jpeg",
+          safety_tolerance: "2",
+        });
+        return {
+          imageUrl: image.url,
+          mimeType: image.content_type ?? "image/jpeg",
+          costUsd: COST_FILL,
+          model: MODEL_FILL,
+        };
+      }
+      // ...else fall through to the plain Kontext path below.
     }
 
     // Plain Kontext calls are txt+image-conditioned generation with an

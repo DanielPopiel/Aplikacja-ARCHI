@@ -27,32 +27,49 @@ interface FalRunResponse {
   detail?: unknown;
 }
 
+// fal.run (sync) enforces a per-account concurrency limit and returns 429
+// when parallel requests exceed it — which our model-comparison feature does
+// by design (N variants at once). fal's docs say to retry raw HTTP calls
+// with exponential backoff, which their own SDK also does.
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503]);
+const MAX_ATTEMPTS = 4;
+
 export async function callFal(model: string, input: Record<string, unknown>): Promise<FalImage> {
   const apiKey = process.env.FAL_KEY;
   if (!apiKey) {
     throw new Error("Brak klucza FAL_KEY w zmiennych środowiskowych.");
   }
 
-  const res = await fetch(`https://fal.run/${model}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Key ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(input),
-  });
+  let lastError = "";
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      const delay = 1500 * 2 ** (attempt - 1) + Math.random() * 500;
+      await new Promise((r) => setTimeout(r, delay));
+    }
 
-  if (!res.ok) {
+    const res = await fetch(`https://fal.run/${model}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Key ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+
+    if (res.ok) {
+      const data = (await res.json()) as FalRunResponse;
+      const image = data.images?.[0] ?? data.image;
+      if (!image?.url) {
+        throw new Error(`fal.ai nie zwrócił obrazu: ${JSON.stringify(data).slice(0, 500)}`);
+      }
+      return image;
+    }
+
     const body = await res.text();
-    throw new Error(`fal.ai (${model}) zwrócił błąd ${res.status}: ${body.slice(0, 500)}`);
+    lastError = `fal.ai (${model}) zwrócił błąd ${res.status}: ${body.slice(0, 500)}`;
+    if (!RETRYABLE_STATUS.has(res.status)) break;
   }
-
-  const data = (await res.json()) as FalRunResponse;
-  const image = data.images?.[0] ?? data.image;
-  if (!image?.url) {
-    throw new Error(`fal.ai nie zwrócił obrazu: ${JSON.stringify(data).slice(0, 500)}`);
-  }
-  return image;
+  throw new Error(lastError);
 }
 
 const ASPECT_RATIOS: Array<{ value: string; ratio: number }> = [

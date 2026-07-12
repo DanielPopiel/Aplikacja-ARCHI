@@ -6,6 +6,7 @@ import { persistImage } from "@/lib/storage";
 import { fetchImageBytes } from "@/lib/image-utils";
 import { normalizeToInputSize, readImageDims } from "@/lib/upscale";
 import { compositeOutsideMask } from "@/lib/mask-composite";
+import { computeCropRect, cropImageAndMask, pasteRegion } from "@/lib/mask-crop";
 
 // Claude + image generation can take a while; allow the max on Vercel hobby.
 export const maxDuration = 300;
@@ -82,39 +83,73 @@ export async function POST(request: NextRequest) {
       referenceObjects: refs,
     });
 
+    const inputDims = await readImageDims(imageUrl);
+
+    // Crop-and-inpaint: when the marked areas are a small/thin slice of the
+    // image, FLUX Fill degrades (garbled pseudo-labels, fake logos INSIDE
+    // the mask — the genre prior for a thin band across an interior photo is
+    // measurement annotations). Inpainting a padded crop instead lets the
+    // model see the edit area at a large relative scale. Removals skip this:
+    // the prompt-less eraser is robust at full frame.
+    const cropRect =
+      useMask && maskUrl && inputDims && translation.editType !== "removal"
+        ? computeCropRect(areas, inputDims)
+        : null;
+
     // 2. Image model applies the edit
-    const result = await provider.generateEdit({
-      imageUrl,
+    const generateParams = {
       prompt: translation.promptEn,
       quality,
-      maskUrl: useMask ? maskUrl : undefined,
       referenceImageUrls: useMask ? undefined : refs.map((r) => r.imageUrl),
       editType: translation.editType,
-    });
+    };
+    let result;
+    if (cropRect && maskUrl) {
+      const cropped = await cropImageAndMask(imageUrl, maskUrl, cropRect);
+      result = await provider.generateEdit({
+        ...generateParams,
+        imageUrl: cropped.imageUrl,
+        maskUrl: cropped.maskUrl,
+      });
+    } else {
+      result = await provider.generateEdit({
+        ...generateParams,
+        imageUrl,
+        maskUrl: useMask ? maskUrl : undefined,
+      });
+    }
 
-    // 3. Always match the output 1:1 to the edited image's pixel dimensions,
-    //    on every quality tier — the aspect_ratio param on the image model
-    //    only picks the closest of a handful of presets, which still leaves
-    //    a residual mismatch that needs a final exact-size snap. Only "high"
-    //    quality pays for a real AuraSR upscale pass when the model's output
-    //    is smaller than the input; "standard" gets a free plain resize so
-    //    the cheap preview tier stays cheap.
+    // 3. Always match the output 1:1 to the edited image's pixel dimensions
+    //    (crop mode: to the crop's dimensions, then paste back), on every
+    //    quality tier — the aspect_ratio param on the image model only picks
+    //    the closest of a handful of presets, which still leaves a residual
+    //    mismatch that needs a final exact-size snap. Only "high" quality
+    //    pays for a real AuraSR upscale pass when the model's output is
+    //    smaller than the input; "standard" gets a free plain resize so the
+    //    cheap preview tier stays cheap.
     let finalBuffer: Buffer;
     let finalMime = result.mimeType;
     let upscaleCost = 0;
 
-    const inputDims = await readImageDims(imageUrl);
     if (inputDims) {
+      const targetDims = cropRect
+        ? { width: cropRect.width, height: cropRect.height }
+        : inputDims;
       const normalized = await normalizeToInputSize({
         imageUrl: result.imageUrl,
         buffer: result.imageBase64 ? Buffer.from(result.imageBase64, "base64") : undefined,
         mimeType: result.mimeType,
-        input: inputDims,
+        input: targetDims,
         allowPaidUpscale: quality === "high",
       });
       finalBuffer = normalized.buffer;
       finalMime = normalized.mimeType;
       upscaleCost = normalized.extraCostUsd;
+
+      if (cropRect) {
+        finalBuffer = await pasteRegion(imageUrl, finalBuffer, cropRect);
+        finalMime = "image/jpeg";
+      }
 
       // Inpainting models regenerate the whole canvas — they only
       // approximate "outside the mask stays the same," they don't guarantee

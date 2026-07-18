@@ -391,6 +391,7 @@ export default function Home() {
         currentNodeId: node.id,
       }));
       setInstruction("");
+      if (data.warning) setError(`⚠️ ${data.warning}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Edycja nie powiodła się");
     } finally {

@@ -45,6 +45,8 @@ export interface EditResponseBody {
   claudeTokens: { input: number; output: number };
   /** Actual model that produced the translation (may differ from the request on fallback). */
   claudeModel: string;
+  /** Non-fatal notice, e.g. "the model made no visible change". */
+  warning?: string;
 }
 
 export interface HistoryNode {

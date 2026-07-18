@@ -10,6 +10,7 @@ import { normalizeToInputSize, readImageDims } from "@/lib/upscale";
 import { compositeOutsideMask } from "@/lib/mask-composite";
 import { computeCropRect, cropImage, pasteRegion } from "@/lib/mask-crop";
 import { refineMaskWithSam, SAM_COST_USD } from "@/lib/sam";
+import { meanAbsDiff, NO_CHANGE_THRESHOLD } from "@/lib/image-diff";
 
 // Claude + image generation can take a while; allow the max on Vercel hobby.
 export const maxDuration = 300;
@@ -201,6 +202,22 @@ export async function POST(request: NextRequest) {
       finalMime = bytes.mimeType;
     }
 
+    // No-op detection: warn when the result is near-identical to the input,
+    // so a "model changed nothing" outcome is named instead of leaving the
+    // user squinting at two identical images they paid for.
+    let warning: string | undefined;
+    try {
+      const diff = await meanAbsDiff(imageUrl, finalBuffer);
+      if (diff < NO_CHANGE_THRESHOLD) {
+        warning =
+          "Model nie wprowadził zauważalnej zmiany — wynik jest niemal identyczny z oryginałem. " +
+          "Opisz wyraźnie, czym nowy element ma się RÓŻNIĆ od obecnego (np. wyższa listwa, płaski profil), " +
+          "albo użyj zdjęcia referencyjnego pokazującego obiekt w szerszym kontekście.";
+      }
+    } catch {
+      /* diff is best-effort */
+    }
+
     const persistedUrl = await persistImage(finalBuffer, finalMime);
     const imageCost = result.costUsd + upscaleCost + samCost;
 
@@ -217,6 +234,7 @@ export async function POST(request: NextRequest) {
       },
       claudeTokens: translation.tokens,
       claudeModel: translation.model,
+      warning,
     };
     return NextResponse.json(response);
   } catch (err) {

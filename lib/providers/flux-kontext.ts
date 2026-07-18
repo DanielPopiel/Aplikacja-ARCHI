@@ -5,14 +5,12 @@ import { fetchImageBytes } from "../image-utils";
 // Model endpoints on fal.ai, overridable via env.
 const MODEL_STANDARD = process.env.FAL_MODEL_STANDARD ?? "fal-ai/flux-pro/kontext";
 const MODEL_HIGH = process.env.FAL_MODEL_HIGH ?? process.env.FAL_MODEL ?? "fal-ai/flux-pro/kontext/max";
-const MODEL_FILL = process.env.FAL_MODEL_FILL ?? "fal-ai/flux-pro/v1/fill";
 const MODEL_MULTI = process.env.FAL_MODEL_MULTI ?? "fal-ai/flux-pro/kontext/max/multi";
 const MODEL_ERASER = process.env.FAL_MODEL_ERASER ?? "fal-ai/bria/eraser";
 
 // Per-image costs shown in the cost counter (USD).
 const COST_STANDARD = Number(process.env.FLUX_STANDARD_COST_USD ?? "0.04");
 const COST_HIGH = Number(process.env.FLUX_COST_USD ?? "0.08");
-const COST_FILL = Number(process.env.FLUX_FILL_COST_USD ?? "0.05");
 const COST_MULTI = Number(process.env.FLUX_MULTI_COST_USD ?? "0.08");
 const COST_ERASER = Number(process.env.BRIA_ERASER_COST_USD ?? "0.04");
 
@@ -34,7 +32,11 @@ interface FalRunResponse {
 const RETRYABLE_STATUS = new Set([429, 500, 502, 503]);
 const MAX_ATTEMPTS = 4;
 
-export async function callFal(model: string, input: Record<string, unknown>): Promise<FalImage> {
+/** Raw fal.run call with retry — returns the full parsed JSON body. */
+export async function callFalJson<T = unknown>(
+  model: string,
+  input: Record<string, unknown>,
+): Promise<T> {
   const apiKey = process.env.FAL_KEY;
   if (!apiKey) {
     throw new Error("Brak klucza FAL_KEY w zmiennych środowiskowych.");
@@ -56,20 +58,46 @@ export async function callFal(model: string, input: Record<string, unknown>): Pr
       body: JSON.stringify(input),
     });
 
-    if (res.ok) {
-      const data = (await res.json()) as FalRunResponse;
-      const image = data.images?.[0] ?? data.image;
-      if (!image?.url) {
-        throw new Error(`fal.ai nie zwrócił obrazu: ${JSON.stringify(data).slice(0, 500)}`);
-      }
-      return image;
-    }
+    if (res.ok) return (await res.json()) as T;
 
     const body = await res.text();
     lastError = `fal.ai (${model}) zwrócił błąd ${res.status}: ${body.slice(0, 500)}`;
     if (!RETRYABLE_STATUS.has(res.status)) break;
   }
   throw new Error(lastError);
+}
+
+/** fal.run call that expects an image result (images[0] or image). */
+export async function callFal(model: string, input: Record<string, unknown>): Promise<FalImage> {
+  const data = await callFalJson<FalRunResponse>(model, input);
+  const image = data.images?.[0] ?? data.image;
+  if (!image?.url) {
+    throw new Error(`fal.ai nie zwrócił obrazu: ${JSON.stringify(data).slice(0, 500)}`);
+  }
+  return image;
+}
+
+/**
+ * Bria Eraser — prompt-less background reconstruction inside the mask. Used
+ * for pure removals regardless of which editor model the user picked, since
+ * a dedicated eraser can't redraw the object or typeset prompt words the way
+ * a generative model does. Provider-independent (it's just a fal model).
+ */
+export async function eraseMasked(
+  imageUrl: string,
+  maskUrl: string,
+): Promise<GenerateEditResult> {
+  const image = await callFal(MODEL_ERASER, {
+    image_url: imageUrl,
+    mask_url: maskUrl,
+    mask_type: "manual",
+  });
+  return {
+    imageUrl: image.url,
+    mimeType: image.content_type ?? "image/jpeg",
+    costUsd: COST_ERASER,
+    model: MODEL_ERASER,
+  };
 }
 
 export const ASPECT_RATIOS: Array<{ value: string; ratio: number }> = [
@@ -99,15 +127,13 @@ async function closestAspectRatio(imageUrl: string): Promise<string | undefined>
 }
 
 /**
- * FLUX via fal.ai:
- * - edits without mask → FLUX.1 Kontext (pro for drafts, max for final quality),
- * - pure removals with a marked area → Bria Eraser (prompt-less background
- *   reconstruction — can't redraw the object or typeset prompt words),
- * - other edits with a marked area → also Kontext, run on the padded crop
- *   the server prepared; the mask boundary is enforced afterwards by the
- *   server-side pixel composite (FLUX Fill hallucinated props/badges inside
- *   masks; kept only behind FAL_MASKED_MODE=fill),
- * - edits with reference objects → Kontext Max Multi (main image + references).
+ * FLUX via fal.ai (the instruction-following EDITOR used for non-removal
+ * edits). Masked edits arrive here already CROPPED to the marked region by
+ * the route — the crop's mask boundary is enforced afterwards by the
+ * server-side pixel composite, so Kontext just edits the image it's given.
+ * - reference objects present → Kontext Max Multi (main image + references),
+ * - otherwise → Kontext (pro for drafts, max for final quality).
+ * Removals never reach here — the route sends them to the shared Bria eraser.
  */
 export const fluxKontextProvider: ImageEditProvider = {
   name: "flux",
@@ -117,9 +143,7 @@ export const fluxKontextProvider: ImageEditProvider = {
     imageUrl,
     prompt,
     quality,
-    maskUrl,
     referenceImageUrls,
-    editType,
   }: GenerateEditParams): Promise<GenerateEditResult> {
     if (referenceImageUrls && referenceImageUrls.length > 0) {
       // Multi-image editing: the main scene first, then the reference objects.
@@ -137,53 +161,6 @@ export const fluxKontextProvider: ImageEditProvider = {
         costUsd: COST_MULTI,
         model: MODEL_MULTI,
       };
-    }
-
-    if (maskUrl) {
-      // Pure removals go to a dedicated eraser: it takes NO prompt and only
-      // reconstructs background inside the mask, so it cannot "draw the
-      // removed object back" or typeset prompt words — both confirmed FLUX
-      // Fill failure modes. Fill remains a generative inpainter and wants to
-      // draw *something* in the mask, which is wrong for removal.
-      if (editType === "removal") {
-        const image = await callFal(MODEL_ERASER, {
-          image_url: imageUrl,
-          mask_url: maskUrl,
-          mask_type: "manual",
-        });
-        return {
-          imageUrl: image.url,
-          mimeType: image.content_type ?? "image/jpeg",
-          costUsd: COST_ERASER,
-          model: MODEL_ERASER,
-        };
-      }
-
-      // Other masked edits: FLUX Fill proved unusable — even with clean
-      // positive prompts and the crop trick it kept injecting staging props
-      // (vases, baskets) and fake badges INSIDE wide masks (genre prior:
-      // "empty floor along a wall wants decor"). Kontext is an instruction-
-      // following EDITOR, not a void-filler — it changes what the prompt
-      // names and leaves the rest alone. The mask boundary itself is
-      // enforced mechanically by the server-side outside-mask composite, so
-      // the generator doesn't need to see the mask at all. Fill stays
-      // available for comparison via FAL_MASKED_MODE=fill.
-      if (process.env.FAL_MASKED_MODE === "fill") {
-        const image = await callFal(MODEL_FILL, {
-          prompt,
-          image_url: imageUrl,
-          mask_url: maskUrl,
-          output_format: "jpeg",
-          safety_tolerance: "2",
-        });
-        return {
-          imageUrl: image.url,
-          mimeType: image.content_type ?? "image/jpeg",
-          costUsd: COST_FILL,
-          model: MODEL_FILL,
-        };
-      }
-      // ...else fall through to the plain Kontext path below.
     }
 
     // Plain Kontext calls are txt+image-conditioned generation with an

@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { EditRequestBody, EditResponseBody } from "@/lib/types";
+import type { GenerateEditResult } from "@/lib/providers/types";
 import { translateInstruction } from "@/lib/claude";
 import { getProvider } from "@/lib/providers";
+import { eraseMasked } from "@/lib/providers/flux-kontext";
 import { persistImage } from "@/lib/storage";
 import { fetchImageBytes } from "@/lib/image-utils";
 import { normalizeToInputSize, readImageDims } from "@/lib/upscale";
 import { compositeOutsideMask } from "@/lib/mask-composite";
-import { computeCropRect, cropImageAndMask, pasteRegion } from "@/lib/mask-crop";
+import { computeCropRect, cropImage, pasteRegion } from "@/lib/mask-crop";
+import { refineMaskWithSam, SAM_COST_USD } from "@/lib/sam";
 
 // Claude + image generation can take a while; allow the max on Vercel hobby.
 export const maxDuration = 300;
@@ -62,13 +65,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // A real pixel mask (FLUX Fill) always wins over reference images when an
-    // area is marked: Fill mechanically preserves everything outside the
-    // mask, which a text-only multi-image edit cannot guarantee. Claude still
-    // sees the reference photos and folds their material/appearance into the
-    // prompt — the image model just doesn't need the reference pixels once a
-    // mask is doing the preservation work.
-    const useMask = Boolean(maskUrl) && provider.supportsMask && areas.length > 0;
+    // Regional editing is OUR mechanism (crop the region → edit the crop →
+    // paste back → mechanically restore every pixel outside the mask), so it
+    // works with ANY editor model, not just ones with native inpainting.
+    // Whether to use it depends only on there being a marked area + a mask.
+    const useMask = Boolean(maskUrl) && areas.length > 0;
 
     // 1. Claude turns the Polish instruction (+ areas, refs, camera) into an EN prompt
     const translation = await translateInstruction({
@@ -85,37 +86,55 @@ export async function POST(request: NextRequest) {
 
     const inputDims = await readImageDims(imageUrl);
 
-    // Crop-and-inpaint: when the marked areas are a small/thin slice of the
-    // image, FLUX Fill degrades (garbled pseudo-labels, fake logos INSIDE
-    // the mask — the genre prior for a thin band across an interior photo is
-    // measurement annotations). Inpainting a padded crop instead lets the
-    // model see the edit area at a large relative scale. Removals skip this:
-    // the prompt-less eraser is robust at full frame.
+    // 1b. Turn the rough rectangle mask into a pixel-accurate object mask with
+    //     SAM 3 so the edit only touches the actual object, not the wall/floor
+    //     the rectangle happened to include. Falls back to the rectangle mask
+    //     on any failure — a pure quality upgrade that can never block an edit.
+    let effectiveMaskUrl = maskUrl;
+    let samCost = 0;
+    if (useMask && maskUrl && inputDims && process.env.SAM_DISABLED !== "1") {
+      const refined = await refineMaskWithSam(imageUrl, areas, inputDims);
+      if (refined) {
+        effectiveMaskUrl = refined;
+        samCost = SAM_COST_USD;
+      }
+    }
+
+    // Crop-and-edit: when the marked areas are a small/thin slice of the
+    // image, editors degrade (a thin band across an interior photo reads to
+    // them as a measurement diagram / staging spot). Editing a padded crop
+    // instead shows the model the edit area at a large relative scale.
+    // Removals skip this: the prompt-less eraser is robust at full frame.
     const cropRect =
-      useMask && maskUrl && inputDims && translation.editType !== "removal"
+      useMask && effectiveMaskUrl && inputDims && translation.editType !== "removal"
         ? computeCropRect(areas, inputDims)
         : null;
 
-    // 2. Image model applies the edit
-    const generateParams = {
-      prompt: translation.promptEn,
-      quality,
-      referenceImageUrls: useMask ? undefined : refs.map((r) => r.imageUrl),
-      editType: translation.editType,
-    };
-    let result;
-    if (cropRect && maskUrl) {
-      const cropped = await cropImageAndMask(imageUrl, maskUrl, cropRect);
+    // 2. Apply the edit.
+    let result: GenerateEditResult;
+    if (useMask && effectiveMaskUrl && translation.editType === "removal") {
+      // Pure removal → shared Bria eraser at full frame, whatever editor
+      // model is selected (a dedicated eraser can't redraw the object).
+      result = await eraseMasked(imageUrl, effectiveMaskUrl);
+    } else if (cropRect) {
+      // Masked edit → edit just the cropped region; the mask boundary is
+      // enforced afterwards by the outside-mask composite.
+      const cropUrl = await cropImage(imageUrl, cropRect);
       result = await provider.generateEdit({
-        ...generateParams,
-        imageUrl: cropped.imageUrl,
-        maskUrl: cropped.maskUrl,
+        prompt: translation.promptEn,
+        quality,
+        imageUrl: cropUrl,
+        editType: translation.editType,
       });
     } else {
+      // Whole-image edit (no area, or area covers most of the frame).
+      // References go in natively for models that accept them.
       result = await provider.generateEdit({
-        ...generateParams,
+        prompt: translation.promptEn,
+        quality,
         imageUrl,
-        maskUrl: useMask ? maskUrl : undefined,
+        referenceImageUrls: useMask ? undefined : refs.map((r) => r.imageUrl),
+        editType: translation.editType,
       });
     }
 
@@ -155,7 +174,7 @@ export async function POST(request: NextRequest) {
       // approximate "outside the mask stays the same," they don't guarantee
       // it. Enforce that guarantee ourselves so unrelated background
       // objects/text can never mutate outside the marked area.
-      if (useMask && maskUrl) {
+      if (useMask && effectiveMaskUrl) {
         // The composite is a best-effort guarantee, not load-bearing for
         // producing a result: if it throws (bad mask fetch, sharp/memory
         // issue, etc.) fall back to the raw model output rather than
@@ -165,7 +184,7 @@ export async function POST(request: NextRequest) {
           finalBuffer = await compositeOutsideMask({
             editedBuffer: finalBuffer,
             originalUrl: imageUrl,
-            maskUrl,
+            maskUrl: effectiveMaskUrl,
             width: inputDims.width,
             height: inputDims.height,
           });
@@ -183,7 +202,7 @@ export async function POST(request: NextRequest) {
     }
 
     const persistedUrl = await persistImage(finalBuffer, finalMime);
-    const imageCost = result.costUsd + upscaleCost;
+    const imageCost = result.costUsd + upscaleCost + samCost;
 
     const response: EditResponseBody = {
       imageUrl: persistedUrl,

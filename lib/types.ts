@@ -1,4 +1,4 @@
-export type ProviderName = "flux" | "gemini";
+export type ProviderName = "flux" | "gemini" | "seedream" | "nano-banana-2";
 export type Quality = "standard" | "high";
 export type CameraAngle = "low" | "high" | "left" | "right" | "detail" | "wide";
 

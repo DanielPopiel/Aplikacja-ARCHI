@@ -92,28 +92,11 @@ export function computeCropRect(areas: EditArea[], dims: ImageDims): CropRect | 
   return { left, top, width, height };
 }
 
-/** Crop the source image and its mask to the rect; returns persisted URLs. */
-export async function cropImageAndMask(
-  imageUrl: string,
-  maskUrl: string,
-  rect: CropRect,
-): Promise<{ imageUrl: string; maskUrl: string }> {
-  const [img, mask] = await Promise.all([fetchImageBytes(imageUrl), fetchImageBytes(maskUrl)]);
-  const meta = await sharp(img.buffer).metadata();
-  const [imgCrop, maskCrop] = await Promise.all([
-    sharp(img.buffer).extract(rect).jpeg({ quality: 95 }).toBuffer(),
-    // Snap the mask to the image's dimensions first — it was built client-side
-    // and could be off by a pixel of rounding.
-    sharp(mask.buffer)
-      .resize(meta.width, meta.height, { fit: "fill" })
-      .extract(rect)
-      .png()
-      .toBuffer(),
-  ]);
-  return {
-    imageUrl: await persistImage(imgCrop, "image/jpeg"),
-    maskUrl: await persistImage(maskCrop, "image/png"),
-  };
+/** Crop the source image to the rect and persist it; returns the crop URL. */
+export async function cropImage(imageUrl: string, rect: CropRect): Promise<string> {
+  const { buffer } = await fetchImageBytes(imageUrl);
+  const crop = await sharp(buffer).extract(rect).jpeg({ quality: 95 }).toBuffer();
+  return persistImage(crop, "image/jpeg");
 }
 
 /** Paste an edited crop back into the original image at its rect. */

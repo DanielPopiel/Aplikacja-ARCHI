@@ -1,11 +1,27 @@
 "use client";
 
-import type { HistoryNode, Project } from "@/lib/types";
+import type { HistoryNode, Project, ProviderName } from "@/lib/types";
 
 interface Props {
   project: Project;
   onSelect: (nodeId: string) => void;
   disabled?: boolean;
+}
+
+/** Short display label for the image model that produced a node. */
+function providerLabel(provider?: ProviderName): string | null {
+  switch (provider) {
+    case "flux":
+      return "FLUX";
+    case "gemini":
+      return "Nano Banana";
+    case "seedream":
+      return "Seedream";
+    case "nano-banana-2":
+      return "Nano Banana 2";
+    default:
+      return null;
+  }
 }
 
 /** Short display label for a Claude model id, e.g. "claude-fable-5" -> "Fable 5". */
@@ -76,7 +92,7 @@ export default function HistoryTree({ project, onSelect, disabled }: Props) {
               {typeof node.costUsd === "number" && node.costUsd > 0 && (
                 <> · ${node.costUsd.toFixed(3)}</>
               )}
-              {node.provider && <> · {node.provider === "flux" ? "FLUX" : "Nano Banana"}</>}
+              {providerLabel(node.provider) && <> · {providerLabel(node.provider)}</>}
               {modelLabel && <> · {modelLabel}</>}
               {isCurrent && <span className="font-medium text-[#b9a646]"> · aktualna</span>}
             </p>

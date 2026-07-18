@@ -352,11 +352,11 @@ export default function Home() {
     const projectId = active.id;
     const parentId = current.id;
     try {
-      // A real mask always wins when an area is marked — it mechanically
-      // preserves everything outside it, even when reference objects are
-      // also attached (their appearance goes into the prompt text instead).
+      // Any marked area builds a mask — the server refines it with SAM,
+      // edits just that region, and mechanically restores everything outside
+      // it. This applies to every image model now, not only FLUX.
       let maskUrl: string | undefined;
-      if (prefs.provider === "flux" && areas.length > 0) {
+      if (areas.length > 0) {
         const maskBlob = await buildMaskBlob(current.imageUrl, areas);
         maskUrl = await uploadBlob(maskBlob, "mask.png");
       }
@@ -506,7 +506,7 @@ export default function Home() {
 
     try {
       let maskUrl: string | undefined;
-      if (prefs.provider === "flux" && areas.length > 0) {
+      if (areas.length > 0) {
         const maskBlob = await buildMaskBlob(baseImageUrl, areas);
         maskUrl = await uploadBlob(maskBlob, "mask.png");
       }
@@ -600,20 +600,28 @@ export default function Home() {
     if (activeId === id) setActiveId(null);
   }
 
-  // Estimated image cost for the quality cards (Claude cost comes on top).
-  const imageCost = (q: Quality): string => {
-    if (prefs.provider === "gemini") return "≈$0.14";
-    if (areas.length > 0) return "≈$0.05";
-    return q === "high" ? "≈$0.08" : "≈$0.04";
+  // Estimated per-image cost (USD) for the selected provider/quality. Marked
+  // edits add ~$0.005 for SAM object segmentation (negligible, omitted here).
+  const imageUnitCost = (q: Quality): number => {
+    switch (prefs.provider) {
+      case "gemini":
+        return q === "high" ? 0.24 : 0.14;
+      case "seedream":
+        return 0.035;
+      case "nano-banana-2":
+        return q === "high" ? 0.16 : 0.08;
+      default: // flux
+        return q === "high" ? 0.08 : 0.04;
+    }
   };
 
+  const imageCost = (q: Quality): string => `≈$${imageUnitCost(q).toFixed(2)}`;
+
   // Rough per-variant estimate for the model-comparison button: image cost
-  // (as above) plus a ballpark Claude translation cost (~$0.005-0.03 depending
-  // on model/effort — not worth per-model precision for a pre-run estimate).
-  const compareCostEstimate = (): number => {
-    const perImage = prefs.provider === "gemini" ? 0.14 : areas.length > 0 ? 0.05 : 0.04;
-    return (perImage + 0.015) * compareModels.length;
-  };
+  // plus a ballpark Claude translation cost (~$0.005-0.03 depending on
+  // model/effort — not worth per-model precision for a pre-run estimate).
+  const compareCostEstimate = (): number =>
+    (imageUnitCost(prefs.quality) + 0.015) * compareModels.length;
 
   if (!loaded) {
     return (
@@ -1004,12 +1012,13 @@ export default function Home() {
             <div>
               {sectionLabel("Zaznacz obszar", true)}
               <p className="mb-2 text-xs text-[#8a887f]">
-                Zaznacz miejsca na obrazie i opisz, co ma się w nich zmienić. Zaznaczaj z
-                zapasem — obejmij też cień i poświatę obiektu.
-                {prefs.provider === "flux" && areas.length > 0 && (
+                Otocz obiekt prostokątem (z niewielkim zapasem) i opisz zmianę. Aplikacja
+                sama wykryje dokładny kształt obiektu w środku (SAM) i zmieni tylko jego —
+                reszta zdjęcia zostaje nietknięta.
+                {areas.length > 0 && (
                   <span className="text-[#50344f]">
                     {" "}
-                    Zmiany obejmą tylko zaznaczenia (inpainting).
+                    Zmiany obejmą tylko zaznaczony obiekt.
                     {referenceObjects.length > 0 &&
                       " Obiekt referencyjny posłuży tylko do opisu wyglądu — jego zdjęcie nie trafia bezpośrednio do modelu graficznego w tym trybie."}
                   </span>
@@ -1195,8 +1204,10 @@ export default function Home() {
                     }
                     className="rounded-xl border border-[#dcd9d1] px-2 py-2 text-sm text-[#1A1A1A] outline-none focus:border-[#b9a646]"
                   >
-                    <option value="flux">FLUX Kontext (fal.ai) — edycja + inpainting</option>
-                    <option value="gemini">Nano Banana Pro (Google)</option>
+                    <option value="flux">FLUX Kontext (fal.ai) — sprawdzony</option>
+                    <option value="nano-banana-2">Nano Banana 2 (Google) — najlepszy do wnętrz</option>
+                    <option value="seedream">Seedream 5 Lite — tani i szybki (test)</option>
+                    <option value="gemini">Nano Banana Pro (Google AI Studio)</option>
                   </select>
                 </label>
                 <label className="flex flex-col gap-1 text-xs font-medium text-[#8a887f]">

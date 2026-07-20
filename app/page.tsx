@@ -983,32 +983,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Kąt kamery */}
-            <div>
-              {sectionLabel("Kąt kamery", true)}
-              <div className="grid grid-cols-3 gap-2">
-                {CAMERA_ANGLES.map((angle) => {
-                  const activeChip = cameraAngle === angle.value;
-                  return (
-                    <button
-                      key={angle.value}
-                      type="button"
-                      disabled={busy !== null}
-                      onClick={() => setCameraAngle(activeChip ? null : angle.value)}
-                      className={`flex flex-col items-center gap-0.5 rounded-xl border px-2 py-2.5 text-xs font-medium transition-colors disabled:opacity-50 ${
-                        activeChip
-                          ? "border-[#b9a646] bg-[#f6f2e3] text-[#50344f]"
-                          : "border-[#dcd9d1] bg-white text-[#55534d] hover:border-[#cdbf7a]"
-                      }`}
-                    >
-                      <span className="text-base leading-none">{angle.icon}</span>
-                      {angle.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
             {/* Zaznacz obszar */}
             <div>
               {sectionLabel("Zaznacz obszar", true)}
@@ -1143,6 +1117,42 @@ export default function Home() {
               </div>
             </div>
 
+            {/* Modele AI — zawsze widoczne, nad Jakością */}
+            <div className="rounded-xl border border-[#e8e6df] p-3">
+              <h3 className="mb-3 text-sm font-bold text-[#1A1A1A]">Modele AI</h3>
+              <div className="flex flex-col gap-3">
+                <label className="flex flex-col gap-1 text-xs font-medium text-[#8a887f]">
+                  Model graficzny
+                  <select
+                    value={prefs.provider}
+                    onChange={(e) =>
+                      setPrefs((p) => ({ ...p, provider: e.target.value as ProviderName }))
+                    }
+                    className="rounded-xl border border-[#dcd9d1] px-2 py-2 text-sm text-[#1A1A1A] outline-none focus:border-[#b9a646]"
+                  >
+                    <option value="flux">FLUX Kontext (fal.ai) — sprawdzony</option>
+                    <option value="nano-banana-2">Nano Banana 2 (Google) — najlepszy do wnętrz</option>
+                    <option value="seedream">Seedream 5 Lite — tani i szybki (test)</option>
+                    <option value="gemini">Nano Banana Pro (Google AI Studio)</option>
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 text-xs font-medium text-[#8a887f]">
+                  Model językowy (tłumaczenie poleceń)
+                  <select
+                    value={prefs.claudeModel}
+                    onChange={(e) => setPrefs((p) => ({ ...p, claudeModel: e.target.value }))}
+                    className="rounded-xl border border-[#dcd9d1] px-2 py-2 text-sm text-[#1A1A1A] outline-none focus:border-[#b9a646]"
+                  >
+                    {CLAUDE_MODELS.map((m) => (
+                      <option key={m.value} value={m.value}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
+
             {/* Jakość */}
             <div>
               {sectionLabel("Jakość")}
@@ -1189,44 +1199,6 @@ export default function Home() {
                 </button>
               </div>
             </div>
-
-            {/* Modele */}
-            <details className="rounded-xl border border-[#e8e6df] p-3">
-              <summary className="cursor-pointer select-none text-sm font-bold text-[#1A1A1A]">
-                Modele AI
-              </summary>
-              <div className="mt-3 flex flex-col gap-3">
-                <label className="flex flex-col gap-1 text-xs font-medium text-[#8a887f]">
-                  Model graficzny
-                  <select
-                    value={prefs.provider}
-                    onChange={(e) =>
-                      setPrefs((p) => ({ ...p, provider: e.target.value as ProviderName }))
-                    }
-                    className="rounded-xl border border-[#dcd9d1] px-2 py-2 text-sm text-[#1A1A1A] outline-none focus:border-[#b9a646]"
-                  >
-                    <option value="flux">FLUX Kontext (fal.ai) — sprawdzony</option>
-                    <option value="nano-banana-2">Nano Banana 2 (Google) — najlepszy do wnętrz</option>
-                    <option value="seedream">Seedream 5 Lite — tani i szybki (test)</option>
-                    <option value="gemini">Nano Banana Pro (Google AI Studio)</option>
-                  </select>
-                </label>
-                <label className="flex flex-col gap-1 text-xs font-medium text-[#8a887f]">
-                  Model językowy (tłumaczenie poleceń)
-                  <select
-                    value={prefs.claudeModel}
-                    onChange={(e) => setPrefs((p) => ({ ...p, claudeModel: e.target.value }))}
-                    className="rounded-xl border border-[#dcd9d1] px-2 py-2 text-sm text-[#1A1A1A] outline-none focus:border-[#b9a646]"
-                  >
-                    {CLAUDE_MODELS.map((m) => (
-                      <option key={m.value} value={m.value}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            </details>
 
             {/* Porównanie modeli na TYM poleceniu */}
             <details className="rounded-xl border border-[#e8e6df] p-3">
@@ -1297,6 +1269,26 @@ export default function Home() {
                 </button>
               </div>
             </details>
+
+            {/* Kąt kamery — rzadko używane, na samym dole jako lista */}
+            <div>
+              {sectionLabel("Kąt kamery", true)}
+              <select
+                value={cameraAngle ?? ""}
+                onChange={(e) =>
+                  setCameraAngle((e.target.value || null) as CameraAngle | null)
+                }
+                disabled={busy !== null}
+                className="w-full rounded-xl border border-[#dcd9d1] px-2 py-2 text-sm text-[#1A1A1A] outline-none focus:border-[#b9a646] disabled:opacity-60"
+              >
+                <option value="">Bez zmiany kadru</option>
+                {CAMERA_ANGLES.map((a) => (
+                  <option key={a.value} value={a.value}>
+                    {a.label}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             <button
               type="button"
